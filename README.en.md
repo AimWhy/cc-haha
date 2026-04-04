@@ -34,6 +34,7 @@ A **locally runnable version** repaired from the leaked Claude Code source, with
 - Custom API endpoint and model support ([Third-Party Models Guide](docs/guide/third-party-models.en.md))
 - **Computer Use desktop control** — [Guide](docs/features/computer-use.en.md)
 - **Memory System** (cross-session persistent memory) — [Usage Guide](docs/memory/01-usage-guide.md)
+- **Multi-Agent System** (agent orchestration, parallel tasks, Teams collaboration) — [Usage Guide](docs/agent/01-usage-guide.md) | [Implementation](docs/agent/02-implementation.md)
 - Fallback Recovery CLI mode (`CLAUDE_CODE_FORCE_RECOVERY_CLI=1 ./bin/claude-haha`)
 
 ---
@@ -135,6 +136,7 @@ export PATH="$HOME/path/to/claude-code-haha/bin:$PATH"
 | [Third-Party Models](docs/guide/third-party-models.en.md) | Using OpenAI / DeepSeek / Ollama and other non-Anthropic models |
 | [Computer Use](docs/features/computer-use.en.md) | Desktop control (screenshots, mouse, keyboard) |
 | [Memory System](docs/memory/01-usage-guide.md) | Cross-session persistent memory usage and implementation |
+| [Multi-Agent System](docs/agent/01-usage-guide.md) | Agent orchestration, parallel tasks and Teams collaboration |
 | [Global Usage](docs/guide/global-usage.en.md) | Run claude-haha from any directory |
 | [FAQ](docs/guide/faq.en.md) | Common error troubleshooting |
 | [Source Fixes](docs/reference/fixes.en.md) | Fixes compared with the original leaked source |
