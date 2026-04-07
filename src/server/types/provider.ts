@@ -1,46 +1,48 @@
 /**
- * Provider 类型定义
+ * Provider types — preset-based provider configuration.
  *
- * Provider 是自定义 API 供应商的配置单元，包含 Base URL、API Key 和可用模型列表。
- * 激活 Provider 时，其配置会写入 ~/.claude/settings.json 的 env 字段。
+ * Providers are stored in ~/.claude/cc-haha/providers.json as a lightweight index.
+ * The active provider's env vars are written to ~/.claude/settings.json.
  */
 
 import { z } from 'zod'
 
-// ─── Zod Schemas ──────────────────────────────────────────────────────────────
-
-export const ProviderModelSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().optional(),
-  context: z.string().optional(),
+export const ModelMappingSchema = z.object({
+  main: z.string(),
+  haiku: z.string(),
+  sonnet: z.string(),
+  opus: z.string(),
 })
 
-export const ProviderSchema = z.object({
-  id: z.string().uuid(),
+export const SavedProviderSchema = z.object({
+  id: z.string(),
+  presetId: z.string(),
   name: z.string().min(1),
-  baseUrl: z.string().url(),
-  apiKey: z.string().min(1),
-  models: z.array(ProviderModelSchema).min(1),
-  isActive: z.boolean(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
+  apiKey: z.string(),
+  baseUrl: z.string(),
+  models: ModelMappingSchema,
   notes: z.string().optional(),
 })
 
+export const ProvidersIndexSchema = z.object({
+  activeId: z.string().nullable(),
+  providers: z.array(SavedProviderSchema),
+})
+
 export const CreateProviderSchema = z.object({
+  presetId: z.string().min(1),
   name: z.string().min(1),
-  baseUrl: z.string().url(),
-  apiKey: z.string().min(1),
-  models: z.array(ProviderModelSchema).min(1),
+  apiKey: z.string(),
+  baseUrl: z.string(),
+  models: ModelMappingSchema,
   notes: z.string().optional(),
 })
 
 export const UpdateProviderSchema = z.object({
   name: z.string().min(1).optional(),
-  baseUrl: z.string().url().optional(),
-  apiKey: z.string().min(1).optional(),
-  models: z.array(ProviderModelSchema).min(1).optional(),
+  apiKey: z.string().optional(),
+  baseUrl: z.string().optional(),
+  models: ModelMappingSchema.optional(),
   notes: z.string().optional(),
 })
 
@@ -50,25 +52,13 @@ export const TestProviderSchema = z.object({
   modelId: z.string().min(1),
 })
 
-export const ActivateProviderSchema = z.object({
-  modelId: z.string().min(1),
-})
-
-export const ProvidersConfigSchema = z.object({
-  providers: z.array(ProviderSchema),
-  activeModel: z.string().optional(),
-  version: z.number(),
-})
-
-// ─── TypeScript Types ─────────────────────────────────────────────────────────
-
-export type ProviderModel = z.infer<typeof ProviderModelSchema>
-export type Provider = z.infer<typeof ProviderSchema>
+// TypeScript types
+export type ModelMapping = z.infer<typeof ModelMappingSchema>
+export type SavedProvider = z.infer<typeof SavedProviderSchema>
+export type ProvidersIndex = z.infer<typeof ProvidersIndexSchema>
 export type CreateProviderInput = z.infer<typeof CreateProviderSchema>
 export type UpdateProviderInput = z.infer<typeof UpdateProviderSchema>
 export type TestProviderInput = z.infer<typeof TestProviderSchema>
-export type ActivateProviderInput = z.infer<typeof ActivateProviderSchema>
-export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>
 
 export interface ProviderTestResult {
   success: boolean
