@@ -151,6 +151,31 @@ describe('ConversationService', () => {
     const svc = new ConversationService()
     expect(() => svc.onOutput('no-such-session', () => {})).not.toThrow()
   })
+
+  it('should ignore stale process exits after a session restarts', () => {
+    const svc = new ConversationService()
+    const oldProc = { pid: 1 } as any
+    const newProc = { pid: 2 } as any
+
+    ;(svc as any).sessions.set('session-restart', {
+      proc: newProc,
+      outputCallbacks: [],
+      workDir: process.cwd(),
+      permissionMode: 'bypassPermissions',
+      sdkToken: 'token',
+      sdkSocket: null,
+      pendingOutbound: [],
+      stderrLines: [],
+      sdkMessages: [],
+      pendingPermissionRequests: new Map(),
+    })
+
+    ;(svc as any).handleProcessExit('session-restart', oldProc, 143)
+    expect(svc.hasSession('session-restart')).toBe(true)
+
+    ;(svc as any).handleProcessExit('session-restart', newProc, 0)
+    expect(svc.hasSession('session-restart')).toBe(false)
+  })
 })
 
 // ============================================================================

@@ -132,7 +132,6 @@ async function compileExecutable({
       // ant-internal / 可选工具
       '@anthropic-ai/mcpb',
       'fflate',
-      'turndown',
       'sharp',
       'react-devtools-core',
     ],

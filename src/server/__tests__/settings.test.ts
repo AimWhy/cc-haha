@@ -134,6 +134,25 @@ describe('SettingsService', () => {
     expect(settings.theme).toBe('dark')
     expect(settings.defaultMode).toBe('acceptEdits')
   })
+
+  it('should serialize concurrent user settings writes to the same file', async () => {
+    const svc = new SettingsService()
+    const originalNow = Date.now
+    Date.now = () => 1776695497171
+
+    try {
+      await Promise.all([
+        svc.updateUserSettings({ theme: 'dark' }),
+        svc.setPermissionMode('bypassPermissions'),
+      ])
+    } finally {
+      Date.now = originalNow
+    }
+
+    const settings = await svc.getUserSettings()
+    expect(settings.theme).toBe('dark')
+    expect(settings.defaultMode).toBe('bypassPermissions')
+  })
 })
 
 // =============================================================================
