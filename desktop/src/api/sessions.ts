@@ -6,6 +6,7 @@ type MessagesResponse = { messages: MessageEntry[] }
 type CreateSessionResponse = { sessionId: string }
 export type SessionRewindResponse = {
   target: {
+    targetUserMessageId: string
     userMessageIndex: number
     userMessageCount: number
   }
@@ -72,7 +73,12 @@ export const sessionsApi = {
     return api.get<{ commands: Array<{ name: string; description: string }> }>(`/api/sessions/${sessionId}/slash-commands`)
   },
 
-  rewind(sessionId: string, body: { userMessageIndex: number; dryRun?: boolean }) {
+  rewind(sessionId: string, body: {
+    targetUserMessageId?: string
+    userMessageIndex?: number
+    expectedContent?: string
+    dryRun?: boolean
+  }) {
     return api.post<SessionRewindResponse>(`/api/sessions/${sessionId}/rewind`, body, {
       timeout: 60_000,
     })

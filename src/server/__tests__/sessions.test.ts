@@ -909,6 +909,100 @@ describe('Sessions API', () => {
     ])
   })
 
+  it('POST /api/sessions/:id/rewind should target the selected message id instead of a shifted visible index', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-ffffffffffff'
+    const firstUserId = crypto.randomUUID()
+    const firstAssistantId = crypto.randomUUID()
+    const hiddenUserId = crypto.randomUUID()
+    const targetUserId = crypto.randomUUID()
+    const targetAssistantId = crypto.randomUUID()
+
+    await writeSessionFile('-tmp-api-rewind-id-target', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('first prompt', firstUserId),
+      {
+        ...makeAssistantEntry('first reply', firstUserId),
+        uuid: firstAssistantId,
+      },
+      makeUserEntry(
+        '<teammate-message teammate_id="reviewer">internal status that the main chat hides</teammate-message>',
+        hiddenUserId,
+      ),
+      makeUserEntry('second visible prompt', targetUserId),
+      {
+        ...makeAssistantEntry('second reply', targetUserId),
+        uuid: targetAssistantId,
+      },
+    ])
+
+    const executeRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userMessageIndex: 1,
+        targetUserMessageId: targetUserId,
+        expectedContent: 'second visible prompt',
+      }),
+    })
+    expect(executeRes.status).toBe(200)
+
+    const executeBody = await executeRes.json() as {
+      target: { targetUserMessageId: string; userMessageIndex: number }
+      conversation: { messagesRemoved: number; removedMessageIds: string[] }
+    }
+    expect(executeBody.target.targetUserMessageId).toBe(targetUserId)
+    expect(executeBody.target.userMessageIndex).toBe(2)
+    expect(executeBody.conversation.messagesRemoved).toBe(2)
+    expect(executeBody.conversation.removedMessageIds).toEqual([
+      targetUserId,
+      targetAssistantId,
+    ])
+
+    const remainingMessages = await service.getSessionMessages(sessionId)
+    expect(remainingMessages.map((message) => message.id)).toEqual([
+      firstUserId,
+      firstAssistantId,
+      hiddenUserId,
+    ])
+  })
+
+  it('POST /api/sessions/:id/rewind should reject an index fallback when the selected prompt no longer matches', async () => {
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-000000000000'
+    const firstUserId = crypto.randomUUID()
+    const hiddenUserId = crypto.randomUUID()
+    const targetUserId = crypto.randomUUID()
+
+    await writeSessionFile('-tmp-api-rewind-index-guard', sessionId, [
+      makeSnapshotEntry(),
+      makeUserEntry('first prompt', firstUserId),
+      makeUserEntry(
+        '<teammate-message teammate_id="reviewer">internal status that the main chat hides</teammate-message>',
+        hiddenUserId,
+      ),
+      makeUserEntry('second visible prompt', targetUserId),
+    ])
+
+    const executeRes = await fetch(`${baseUrl}/api/sessions/${sessionId}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userMessageIndex: 1,
+        expectedContent: 'second visible prompt',
+      }),
+    })
+    expect(executeRes.status).toBe(400)
+
+    const body = await executeRes.json() as { message: string }
+    expect(body.message).toContain('does not match the selected prompt')
+
+    const remainingMessages = await service.getSessionMessages(sessionId)
+    expect(remainingMessages.map((message) => message.id)).toEqual([
+      firstUserId,
+      hiddenUserId,
+      targetUserId,
+    ])
+  })
+
   it('POST /api/sessions/:id/rewind should restore a single edited file', async () => {
     const sessionId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
     const workDir = path.join(tmpDir, 'single-file-fixture')

@@ -151,6 +151,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
   const lastSessionIdRef = useRef<string | null | undefined>(resolvedSessionId)
   const t = useTranslation()
   const [rewindTarget, setRewindTarget] = useState<{
+    messageId: string
     userMessageIndex: number
     content: string
     attachments?: Extract<UIMessage, { type: 'user_text' }>['attachments']
@@ -187,7 +188,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
 
     void sessionsApi
       .rewind(resolvedSessionId, {
+        targetUserMessageId: rewindTarget.messageId,
         userMessageIndex: rewindTarget.userMessageIndex,
+        expectedContent: rewindTarget.content,
         dryRun: true,
       })
       .then((preview) => {
@@ -243,7 +246,9 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
       }
 
       const result = await sessionsApi.rewind(resolvedSessionId, {
+        targetUserMessageId: rewindTarget.messageId,
         userMessageIndex: rewindTarget.userMessageIndex,
+        expectedContent: rewindTarget.content,
       })
 
       await reloadHistory(resolvedSessionId)
@@ -340,6 +345,7 @@ export function MessageList({ sessionId }: MessageListProps = {}) {
                 !isMemberSession
                   ? (message, userMessageIndex) => {
                       setRewindTarget({
+                        messageId: message.id,
                         userMessageIndex,
                         content: message.content,
                         attachments: message.attachments,

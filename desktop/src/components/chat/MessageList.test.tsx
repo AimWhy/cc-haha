@@ -532,6 +532,7 @@ describe('MessageList nested tool calls', () => {
   it('opens a rewind preview modal for user messages', async () => {
     vi.spyOn(sessionsApi, 'rewind').mockResolvedValue({
       target: {
+        targetUserMessageId: 'user-1',
         userMessageIndex: 0,
         userMessageCount: 1,
       },
@@ -570,8 +571,80 @@ describe('MessageList nested tool calls', () => {
     expect(within(dialog).getByText('回到这一步重做')).toBeTruthy()
     expect(within(dialog).getByText('src/example.ts')).toBeTruthy()
     expect(sessionsApi.rewind).toHaveBeenCalledWith(ACTIVE_TAB, {
+      targetUserMessageId: 'user-1',
       userMessageIndex: 0,
+      expectedContent: '回到这一步重做',
       dryRun: true,
+    })
+  })
+
+  it('confirms rewind with the selected message id and prompt guard', async () => {
+    vi.spyOn(sessionsApi, 'rewind').mockResolvedValue({
+      target: {
+        targetUserMessageId: 'user-2',
+        userMessageIndex: 1,
+        userMessageCount: 2,
+      },
+      conversation: {
+        messagesRemoved: 2,
+      },
+      code: {
+        available: false,
+        filesChanged: [],
+        insertions: 0,
+        deletions: 0,
+      },
+    })
+    const reloadHistory = vi.fn().mockResolvedValue(undefined)
+    const queueComposerPrefill = vi.fn()
+
+    useChatStore.setState({
+      reloadHistory,
+      queueComposerPrefill,
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '第一段',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'ok',
+              timestamp: 2,
+            },
+            {
+              id: 'user-2',
+              type: 'user_text',
+              content: '第二段',
+              timestamp: 3,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const buttons = screen.getAllByRole('button', { name: 'Rewind to here' })
+    fireEvent.click(buttons[1]!)
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /Rewind here/ }))
+
+    await waitFor(() => {
+      expect(sessionsApi.rewind).toHaveBeenLastCalledWith(ACTIVE_TAB, {
+        targetUserMessageId: 'user-2',
+        userMessageIndex: 1,
+        expectedContent: '第二段',
+      })
+    })
+    expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
+    expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
+      text: '第二段',
+      attachments: undefined,
     })
   })
 

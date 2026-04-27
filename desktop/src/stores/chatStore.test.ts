@@ -206,6 +206,31 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('preserves source user ids when restoring array-content user prompts', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'user-with-attachment',
+        type: 'user',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [
+          { type: 'text', text: '请看这个文件' },
+          { type: 'file', name: 'report.md' },
+        ],
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toMatchObject([
+      {
+        id: 'user-with-attachment',
+        type: 'user_text',
+        content: '请看这个文件',
+        attachments: [{ type: 'file', name: 'report.md' }],
+      },
+    ])
+  })
+
   it('keeps parent tool linkage for live tool events', () => {
     // Initialize the session first
     useChatStore.setState({

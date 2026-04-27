@@ -20,6 +20,7 @@ import { getSkillDirCommands } from '../../skills/loadSkillsDir.js'
 import {
   executeSessionRewind,
   previewSessionRewind,
+  type RewindTargetSelector,
 } from '../services/sessionRewindService.js'
 
 export async function handleSessionsApi(
@@ -267,20 +268,23 @@ async function getGitInfo(sessionId: string): Promise<Response> {
 }
 
 async function rewindSession(req: Request, sessionId: string): Promise<Response> {
-  let body: { userMessageIndex?: number; dryRun?: boolean }
+  let body: RewindTargetSelector & { dryRun?: boolean }
   try {
-    body = (await req.json()) as { userMessageIndex?: number; dryRun?: boolean }
+    body = (await req.json()) as RewindTargetSelector & { dryRun?: boolean }
   } catch {
     throw ApiError.badRequest('Invalid JSON body')
   }
 
-  if (!Number.isInteger(body.userMessageIndex)) {
-    throw ApiError.badRequest('userMessageIndex (integer) is required')
+  if (
+    (typeof body.targetUserMessageId !== 'string' || body.targetUserMessageId.length === 0) &&
+    !Number.isInteger(body.userMessageIndex)
+  ) {
+    throw ApiError.badRequest('targetUserMessageId (string) or userMessageIndex (integer) is required')
   }
 
   const result = body.dryRun
-    ? await previewSessionRewind(sessionId, body.userMessageIndex)
-    : await executeSessionRewind(sessionId, body.userMessageIndex)
+    ? await previewSessionRewind(sessionId, body)
+    : await executeSessionRewind(sessionId, body)
 
   return Response.json(result)
 }
