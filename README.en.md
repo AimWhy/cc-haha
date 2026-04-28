@@ -273,6 +273,16 @@ If this project helps you, consider buying me a coffee — every bit of support 
 
 ---
 
+## Thanks
+
+Thanks to the following open-source projects and community practices for reference and inspiration:
+
+- [React](https://github.com/facebook/react): frontend engineering and component-based UI ecosystem.
+- [Tauri](https://github.com/tauri-apps/tauri): cross-platform desktop app capabilities and engineering practices.
+- [cc-switch](https://github.com/farion1231/cc-switch): reference for model provider configuration.
+
+---
+
 ## Disclaimer
 
 This repository is based on the Claude Code source leaked from the Anthropic npm registry on 2026-03-31. All original source code copyrights belong to [Anthropic](https://www.anthropic.com). It is provided for learning and research purposes only.
