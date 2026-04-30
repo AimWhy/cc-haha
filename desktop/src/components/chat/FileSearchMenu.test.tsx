@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { FileSearchMenu } from './FileSearchMenu'
 import { ApiError } from '../../api/client'
 import { filesystemApi } from '../../api/filesystem'
+import { useSettingsStore } from '../../stores/settingsStore'
 
 vi.mock('../../api/filesystem', () => ({
   filesystemApi: {
@@ -15,6 +16,7 @@ vi.mock('../../api/filesystem', () => ({
 describe('FileSearchMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    useSettingsStore.setState({ locale: 'en' })
   })
 
   it('shows an explicit error when directory browsing is denied', async () => {

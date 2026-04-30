@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
@@ -46,8 +46,13 @@ import { ToolInspection } from '../pages/ToolInspection'
 import { Sidebar } from '../components/layout/Sidebar'
 import { UserMessage } from '../components/chat/UserMessage'
 import { useChatStore } from '../stores/chatStore'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useTabStore } from '../stores/tabStore'
+
+beforeEach(() => {
+  useSettingsStore.setState({ locale: 'en' })
+})
 
 /**
  * Core rendering tests: content-only pages must render without crashing
@@ -576,7 +581,8 @@ describe('Design system compliance', () => {
         html.includes('C47A5A') ||
         html.includes('8F482F') ||
         html.includes('var(--color-brand)') ||
-        html.includes('bg-[var(--color-brand)]'),
+        html.includes('bg-[var(--color-brand)]') ||
+        html.includes('var(--gradient-btn-primary)'),
       ).toBe(true)
       unmount()
     }

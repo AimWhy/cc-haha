@@ -171,10 +171,10 @@ wait_for_file_contains "${README_FILE}" "Second turn touched README" 60
 wait_for_file_contains "${GENERATED_FILE}" "second-turn" 60
 ${AB} screenshot "${ARTIFACT_DIR}/04-after-second-turn.png" >/dev/null
 
-${AB} eval "const buttons = [...document.querySelectorAll('button')].filter((node) => node.getAttribute('aria-label') === 'Rewind to here'); if (buttons.length < 2) throw new Error('Expected at least two Rewind buttons, found ' + buttons.length); buttons[buttons.length - 1].click();"
+${AB} find role button click --name "Undo current turn changes"
 ${AB} wait 1500
-${AB} screenshot "${ARTIFACT_DIR}/05-rewind-second-turn-modal.png" >/dev/null
-${AB} find role button click --name "Rewind here"
+${AB} screenshot "${ARTIFACT_DIR}/05-undo-second-turn-confirm.png" >/dev/null
+${AB} find role button click --name "Undo current turn"
 
 for _ in $(seq 1 120); do
   if grep -q "turn-one" "${APP_FILE}" \

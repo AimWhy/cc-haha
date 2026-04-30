@@ -563,7 +563,7 @@ describe('MessageList nested tool calls', () => {
     expect(assistantShell?.className).not.toContain('ml-10')
   })
 
-  it('opens a rewind preview modal for user messages', async () => {
+  it('does not expose the old message-level rewind action', async () => {
     vi.spyOn(sessionsApi, 'rewind').mockResolvedValue({
       target: {
         targetUserMessageId: 'user-1',
@@ -575,10 +575,18 @@ describe('MessageList nested tool calls', () => {
       },
       code: {
         available: true,
-        filesChanged: ['src/example.ts'],
-        insertions: 6,
-        deletions: 2,
+        filesChanged: ['src/App.tsx'],
+        insertions: 4,
+        deletions: 1,
       },
+    })
+    vi.spyOn(sessionsApi, 'getWorkspaceStatus').mockResolvedValue({
+      state: 'ok',
+      workDir: '/tmp/example-project',
+      repoName: 'example-project',
+      branch: null,
+      isGitRepo: false,
+      changedFiles: [],
     })
 
     useChatStore.setState({
@@ -588,73 +596,14 @@ describe('MessageList nested tool calls', () => {
             {
               id: 'user-1',
               type: 'user_text',
-              content: '回到这一步重做',
-              timestamp: 1,
-            },
-          ],
-        }),
-      },
-    })
-
-    render(<MessageList />)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Rewind to here' }))
-
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Rewind Conversation')).toBeTruthy()
-    expect(within(dialog).getByText('回到这一步重做')).toBeTruthy()
-    expect(within(dialog).getByText('src/example.ts')).toBeTruthy()
-    expect(sessionsApi.rewind).toHaveBeenCalledWith(ACTIVE_TAB, {
-      targetUserMessageId: 'user-1',
-      userMessageIndex: 0,
-      expectedContent: '回到这一步重做',
-      dryRun: true,
-    })
-  })
-
-  it('confirms rewind with the selected message id and prompt guard', async () => {
-    vi.spyOn(sessionsApi, 'rewind').mockResolvedValue({
-      target: {
-        targetUserMessageId: 'user-2',
-        userMessageIndex: 1,
-        userMessageCount: 2,
-      },
-      conversation: {
-        messagesRemoved: 2,
-      },
-      code: {
-        available: false,
-        filesChanged: [],
-        insertions: 0,
-        deletions: 0,
-      },
-    })
-    const reloadHistory = vi.fn().mockResolvedValue(undefined)
-    const queueComposerPrefill = vi.fn()
-
-    useChatStore.setState({
-      reloadHistory,
-      queueComposerPrefill,
-      sessions: {
-        [ACTIVE_TAB]: makeSessionState({
-          messages: [
-            {
-              id: 'user-1',
-              type: 'user_text',
-              content: '第一段',
+              content: '做一个页面',
               timestamp: 1,
             },
             {
               id: 'assistant-1',
               type: 'assistant_text',
-              content: 'ok',
+              content: 'done',
               timestamp: 2,
-            },
-            {
-              id: 'user-2',
-              type: 'user_text',
-              content: '第二段',
-              timestamp: 3,
             },
           ],
         }),
@@ -663,23 +612,8 @@ describe('MessageList nested tool calls', () => {
 
     render(<MessageList />)
 
-    const buttons = screen.getAllByRole('button', { name: 'Rewind to here' })
-    fireEvent.click(buttons[1]!)
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: /Rewind here/ }))
-
-    await waitFor(() => {
-      expect(sessionsApi.rewind).toHaveBeenLastCalledWith(ACTIVE_TAB, {
-        targetUserMessageId: 'user-2',
-        userMessageIndex: 1,
-        expectedContent: '第二段',
-      })
-    })
-    expect(reloadHistory).toHaveBeenCalledWith(ACTIVE_TAB)
-    expect(queueComposerPrefill).toHaveBeenCalledWith(ACTIVE_TAB, {
-      text: '第二段',
-      attachments: undefined,
-    })
+    expect(await screen.findByRole('button', { name: 'Undo current turn changes' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Rewind to here' })).toBeNull()
   })
 
   it('shows a current-turn change card from checkpoint preview', async () => {

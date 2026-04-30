@@ -24,6 +24,7 @@ vi.mock('../../api/sessions', () => ({
 
 import { AskUserQuestion } from './AskUserQuestion'
 import { useChatStore } from '../../stores/chatStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
 
 const ACTIVE_TAB = 'active-tab'
@@ -31,6 +32,7 @@ const ACTIVE_TAB = 'active-tab'
 describe('AskUserQuestion', () => {
   beforeEach(() => {
     sendMock.mockReset()
+    useSettingsStore.setState({ locale: 'en' })
     useTabStore.setState({
       activeTabId: ACTIVE_TAB,
       tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session', status: 'idle' }],
