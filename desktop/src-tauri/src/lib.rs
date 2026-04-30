@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    fs,
     io::{Error as IoError, ErrorKind, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
@@ -14,11 +15,11 @@ use std::{
 };
 
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Emitter;
-use tauri::{AppHandle, Manager, RunEvent, State, WindowEvent};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, RunEvent, State, WindowEvent};
 use tauri_plugin_shell::{
     process::{CommandChild, CommandEvent},
     ShellExt,
@@ -28,6 +29,10 @@ const SERVER_STARTUP_LOG_LIMIT: usize = 80;
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray_show";
 const TRAY_QUIT_ID: &str = "tray_quit";
+const WINDOW_STATE_FILE: &str = "window-state.json";
+const MIN_WINDOW_WIDTH: u32 = 960;
+const MIN_WINDOW_HEIGHT: u32 = 640;
+const MIN_VISIBLE_PIXELS: i64 = 64;
 
 #[derive(Default)]
 struct ServerState(Mutex<ServerStatus>);
@@ -46,6 +51,15 @@ struct ServerStatus {
 #[derive(Default)]
 struct AppExitState {
     is_quitting: Mutex<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+struct StoredWindowState {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    maximized: bool,
 }
 
 /// 与 ServerState 平级的 adapter 子进程状态。
@@ -157,10 +171,187 @@ fn should_hide_to_tray(app: &AppHandle, label: &str) -> bool {
         .unwrap_or(true)
 }
 
+fn is_persistable_window_state(state: &StoredWindowState) -> bool {
+    state.width >= MIN_WINDOW_WIDTH && state.height >= MIN_WINDOW_HEIGHT
+}
+
+fn has_meaningful_intersection(
+    state: &StoredWindowState,
+    monitor_x: i32,
+    monitor_y: i32,
+    monitor_width: u32,
+    monitor_height: u32,
+) -> bool {
+    let left = state.x as i64;
+    let top = state.y as i64;
+    let right = left + state.width as i64;
+    let bottom = top + state.height as i64;
+
+    let monitor_left = monitor_x as i64;
+    let monitor_top = monitor_y as i64;
+    let monitor_right = monitor_left + monitor_width as i64;
+    let monitor_bottom = monitor_top + monitor_height as i64;
+
+    right > monitor_left + MIN_VISIBLE_PIXELS
+        && bottom > monitor_top + MIN_VISIBLE_PIXELS
+        && left < monitor_right - MIN_VISIBLE_PIXELS
+        && top < monitor_bottom - MIN_VISIBLE_PIXELS
+}
+
+fn is_window_state_visible_on_any_monitor(
+    state: &StoredWindowState,
+    monitors: &[tauri::Monitor],
+) -> bool {
+    if monitors.is_empty() {
+        return true;
+    }
+
+    monitors.iter().any(|monitor| {
+        let position = monitor.position();
+        let size = monitor.size();
+        has_meaningful_intersection(state, position.x, position.y, size.width, size.height)
+    })
+}
+
+fn window_state_path(app: &AppHandle) -> Option<PathBuf> {
+    match app.path().app_config_dir() {
+        Ok(dir) => Some(dir.join(WINDOW_STATE_FILE)),
+        Err(err) => {
+            eprintln!("[desktop] failed to resolve app config dir: {err}");
+            None
+        }
+    }
+}
+
+fn read_stored_window_state(app: &AppHandle) -> Option<StoredWindowState> {
+    let path = window_state_path(app)?;
+    let data = match fs::read_to_string(&path) {
+        Ok(data) => data,
+        Err(err) if err.kind() == ErrorKind::NotFound => return None,
+        Err(err) => {
+            eprintln!(
+                "[desktop] failed to read window state {}: {err}",
+                path.display()
+            );
+            return None;
+        }
+    };
+
+    match serde_json::from_str::<StoredWindowState>(&data) {
+        Ok(state) if is_persistable_window_state(&state) => Some(state),
+        Ok(_) => None,
+        Err(err) => {
+            eprintln!(
+                "[desktop] failed to parse window state {}: {err}",
+                path.display()
+            );
+            None
+        }
+    }
+}
+
+fn write_stored_window_state(app: &AppHandle, state: &StoredWindowState) {
+    if !is_persistable_window_state(state) {
+        return;
+    }
+
+    let Some(path) = window_state_path(app) else {
+        return;
+    };
+
+    if let Some(parent) = path.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            eprintln!(
+                "[desktop] failed to create window state directory {}: {err}",
+                parent.display()
+            );
+            return;
+        }
+    }
+
+    let data = match serde_json::to_string_pretty(state) {
+        Ok(data) => data,
+        Err(err) => {
+            eprintln!("[desktop] failed to serialize window state: {err}");
+            return;
+        }
+    };
+
+    if let Err(err) = fs::write(&path, data) {
+        eprintln!(
+            "[desktop] failed to write window state {}: {err}",
+            path.display()
+        );
+    }
+}
+
+fn capture_window_state(window: &tauri::WebviewWindow) -> Option<StoredWindowState> {
+    if window.is_minimized().unwrap_or(false) {
+        return None;
+    }
+
+    let position = match window.outer_position() {
+        Ok(position) => position,
+        Err(err) => {
+            eprintln!("[desktop] failed to read window position: {err}");
+            return None;
+        }
+    };
+    let size = match window.outer_size() {
+        Ok(size) => size,
+        Err(err) => {
+            eprintln!("[desktop] failed to read window size: {err}");
+            return None;
+        }
+    };
+
+    let state = StoredWindowState {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: window.is_maximized().unwrap_or(false),
+    };
+
+    is_persistable_window_state(&state).then_some(state)
+}
+
+fn save_main_window_state(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    let Some(state) = capture_window_state(&window) else {
+        return;
+    };
+
+    write_stored_window_state(app, &state);
+}
+
+fn restore_main_window_state(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+    let Some(state) = read_stored_window_state(app) else {
+        return;
+    };
+
+    let monitors = window.available_monitors().unwrap_or_default();
+    if !is_window_state_visible_on_any_monitor(&state, &monitors) {
+        return;
+    }
+
+    let _ = window.unmaximize();
+    let _ = window.set_size(PhysicalSize::new(state.width, state.height));
+    let _ = window.set_position(PhysicalPosition::new(state.x, state.y));
+    if state.maximized {
+        let _ = window.maximize();
+    }
+}
+
 fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-        let _ = window.unminimize();
         let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }
@@ -879,8 +1070,70 @@ fn kill_windows_sidecars() {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_terminal_output, default_utf8_locale, ensure_utf8_locale, parse_env_block};
+    use super::{
+        decode_terminal_output, default_utf8_locale, ensure_utf8_locale,
+        has_meaningful_intersection, is_persistable_window_state, parse_env_block,
+        StoredWindowState,
+    };
     use std::collections::HashMap;
+
+    #[test]
+    fn window_state_rejects_too_small_sizes() {
+        let valid = StoredWindowState {
+            x: 100,
+            y: 100,
+            width: 1200,
+            height: 800,
+            maximized: false,
+        };
+        let too_narrow = StoredWindowState {
+            width: 959,
+            ..valid.clone()
+        };
+        let too_short = StoredWindowState {
+            height: 639,
+            ..valid.clone()
+        };
+
+        assert!(is_persistable_window_state(&valid));
+        assert!(!is_persistable_window_state(&too_narrow));
+        assert!(!is_persistable_window_state(&too_short));
+    }
+
+    #[test]
+    fn window_state_requires_visible_monitor_intersection() {
+        let state = StoredWindowState {
+            x: 100,
+            y: 100,
+            width: 1200,
+            height: 800,
+            maximized: false,
+        };
+
+        assert!(has_meaningful_intersection(&state, 0, 0, 1920, 1080));
+        assert!(!has_meaningful_intersection(
+            &StoredWindowState {
+                x: -1200,
+                y: 100,
+                ..state.clone()
+            },
+            0,
+            0,
+            1920,
+            1080,
+        ));
+        assert!(!has_meaningful_intersection(
+            &StoredWindowState {
+                x: 1900,
+                y: 100,
+                ..state
+            },
+            0,
+            0,
+            1920,
+            1080,
+        ));
+    }
 
     #[test]
     fn terminal_output_decoder_preserves_split_chinese_characters() {
@@ -1043,6 +1296,7 @@ pub fn run() {
     let app = builder
         .setup(|app| {
             setup_system_tray(app)?;
+            restore_main_window_state(&app.handle());
 
             let state = app.state::<ServerState>();
             let mut guard = state
@@ -1080,9 +1334,17 @@ pub fn run() {
             ..
         } if should_hide_to_tray(app_handle, &label) => {
             api.prevent_close();
+            save_main_window_state(app_handle);
             if let Some(window) = app_handle.get_webview_window(&label) {
                 let _ = window.hide();
             }
+        }
+        RunEvent::WindowEvent {
+            label,
+            event: WindowEvent::Moved(_) | WindowEvent::Resized(_),
+            ..
+        } if label == MAIN_WINDOW_LABEL => {
+            save_main_window_state(app_handle);
         }
         #[cfg(target_os = "macos")]
         RunEvent::Reopen {
@@ -1093,11 +1355,13 @@ pub fn run() {
         }
         RunEvent::ExitRequested { .. } => {
             mark_app_quitting(app_handle);
+            save_main_window_state(app_handle);
             stop_server_sidecar(app_handle);
             stop_adapters_sidecar(app_handle);
         }
         RunEvent::Exit => {
             mark_app_quitting(app_handle);
+            save_main_window_state(app_handle);
             stop_server_sidecar(app_handle);
             stop_adapters_sidecar(app_handle);
         }
