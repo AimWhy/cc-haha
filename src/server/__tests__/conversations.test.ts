@@ -859,6 +859,32 @@ describe('WebSocket Chat Integration', () => {
     expect(nextTurn.some((m) => m.type === 'message_complete')).toBe(true)
   })
 
+  it('should include desktop service diagnostics when CLI startup fails', async () => {
+    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-startup-missing-workdir-'))
+    const createRes = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workDir }),
+    })
+    expect(createRes.status).toBe(201)
+    const { sessionId } = await createRes.json() as { sessionId: string }
+
+    await fs.rm(workDir, { recursive: true, force: true })
+
+    const messages = await runTurn(sessionId, 'trigger startup diagnostics', true)
+    const error = messages.find((msg) => msg.type === 'error')
+
+    expect(error).toMatchObject({
+      code: 'WORKDIR_INVALID',
+    })
+    expect(error?.message).toContain('Desktop service diagnostics:')
+    expect(error?.message).toContain(`sessionId: ${sessionId}`)
+    expect(error?.message).toContain(`workDir: ${workDir}`)
+    expect(error?.message).toContain('runtimeOverride: (none)')
+    expect(error?.message).toContain('activeProviderId:')
+    expect(error?.message).toContain('configuredProviders:')
+  })
+
   it('should prewarm the CLI before the first user turn and reuse that process', async () => {
     const createRes = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
@@ -1140,6 +1166,108 @@ describe('WebSocket Chat Integration', () => {
       ws.close()
       conversationService.startSession = originalStartSession
       conversationService.stopSession(sessionId)
+    }
+  }, 20_000)
+
+  it('should ignore stale persisted runtime provider ids when resuming old sessions', async () => {
+    const providerService = new ProviderService()
+    const activeProvider = await providerService.addProvider({
+      presetId: 'custom',
+      name: 'Current Valid Provider',
+      apiKey: 'key-current-valid',
+      baseUrl: 'http://127.0.0.1:1/anthropic',
+      apiFormat: 'anthropic',
+      models: {
+        main: 'current-main',
+        haiku: 'current-haiku',
+        sonnet: 'current-sonnet',
+        opus: 'current-opus',
+      },
+    })
+    await providerService.activateProvider(activeProvider.id)
+
+    const createRes = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workDir: process.cwd() }),
+    })
+    expect(createRes.status).toBe(201)
+    const { sessionId } = await createRes.json() as { sessionId: string }
+
+    const staleProviderId = crypto.randomUUID()
+    const originalStartSession = conversationService.startSession.bind(conversationService)
+    const startCalls: Array<{
+      sessionId: string
+      options: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null } | undefined
+    }> = []
+
+    conversationService.startSession = (async function patchedStartSession(
+      sid: string,
+      workDir: string,
+      sdkUrl: string,
+      options?: { permissionMode?: string; model?: string; effort?: string; providerId?: string | null },
+    ) {
+      startCalls.push({ sessionId: sid, options })
+      return originalStartSession(sid, workDir, sdkUrl, options)
+    }) as typeof conversationService.startSession
+
+    const ws = new WebSocket(`${wsUrl}/ws/${sessionId}`)
+    const messages: any[] = []
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          ws.close()
+          reject(new Error(`Timed out waiting for stale runtime resume for session ${sessionId}`))
+        }, 10_000)
+
+        ws.onmessage = (event) => {
+          const msg = JSON.parse(event.data as string)
+          messages.push(msg)
+
+          if (msg.type === 'connected') {
+            ws.send(JSON.stringify({
+              type: 'set_runtime_config',
+              providerId: staleProviderId,
+              modelId: 'stale-model',
+            }))
+            ws.send(JSON.stringify({ type: 'user_message', content: 'resume old session' }))
+            return
+          }
+
+          if (msg.type === 'error') {
+            clearTimeout(timeout)
+            ws.close()
+            reject(new Error(msg.message))
+            return
+          }
+
+          if (msg.type === 'message_complete') {
+            clearTimeout(timeout)
+            ws.close()
+            resolve()
+          }
+        }
+
+        ws.onerror = () => {
+          clearTimeout(timeout)
+          reject(new Error(`WebSocket error for stale runtime resume session ${sessionId}`))
+        }
+      })
+
+      expect(startCalls).toHaveLength(1)
+      expect(startCalls[0]).toMatchObject({
+        sessionId,
+        options: {
+          providerId: activeProvider.id,
+        },
+      })
+      expect(startCalls[0]?.options?.model).not.toBe('stale-model')
+      expect(messages.some((msg) => msg.type === 'message_complete')).toBe(true)
+    } finally {
+      ws.close()
+      conversationService.startSession = originalStartSession
+      conversationService.stopSession(sessionId)
+      await providerService.activateOfficial()
     }
   }, 20_000)
 

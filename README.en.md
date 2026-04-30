@@ -283,6 +283,20 @@ Thanks to the following open-source projects and community practices for referen
 
 ---
 
+## ⭐ Star History
+
+If this project helps you, please support it with a ⭐ Star so more people can discover Claude Code Haha.
+
+<a href="https://www.star-history.com/#NanmiCoder/cc-haha&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=NanmiCoder/cc-haha&type=Date" />
+  </picture>
+</a>
+
+---
+
 ## Disclaimer
 
 This repository is based on the Claude Code source leaked from the Anthropic npm registry on 2026-03-31. All original source code copyrights belong to [Anthropic](https://www.anthropic.com). It is provided for learning and research purposes only.

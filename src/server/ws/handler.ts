@@ -61,6 +61,7 @@ const runtimeOverrides = new Map<string, {
 
 const runtimeTransitionPromises = new Map<string, Promise<void>>()
 const sessionStartupPromises = new Map<string, Promise<void>>()
+const lastResolvedStartupWorkDirs = new Map<string, string>()
 const prewarmPendingSessions = new Set<string>()
 const prewarmedSessions = new Set<string>()
 const prewarmIdleTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -265,7 +266,7 @@ async function handleUserMessage(
     console.error(`[WS] CLI start failed for ${sessionId}: ${errMsg}`)
     sendMessage(ws, {
       type: 'error',
-      message: errMsg,
+      message: await buildSessionStartupDiagnosticMessage(sessionId, errMsg),
       code,
       retryable:
         err instanceof ConversationStartupError ? err.retryable : false,
@@ -511,7 +512,10 @@ async function restartSessionWithPermissionMode(
     console.error(`[WS] Failed to restart CLI for ${sessionId}: ${errMsg}`)
     sendMessage(ws, {
       type: 'error',
-      message: `Failed to restart session with new permission mode: ${errMsg}`,
+      message: await buildSessionStartupDiagnosticMessage(
+        sessionId,
+        `Failed to restart session with new permission mode: ${errMsg}`,
+      ),
       code: 'CLI_RESTART_FAILED',
     })
     sendMessage(ws, { type: 'status', state: 'idle' })
@@ -545,7 +549,10 @@ async function restartSessionWithRuntimeConfig(
     console.error(`[WS] Failed to restart CLI for ${sessionId} after runtime override: ${errMsg}`)
     sendMessage(ws, {
       type: 'error',
-      message: `Failed to switch provider/model: ${errMsg}`,
+      message: await buildSessionStartupDiagnosticMessage(
+        sessionId,
+        `Failed to switch provider/model: ${errMsg}`,
+      ),
       code: 'CLI_RESTART_FAILED',
     })
     sendMessage(ws, { type: 'status', state: 'idle' })
@@ -661,6 +668,7 @@ function cleanupSessionRuntimeState(sessionId: string) {
   runtimeOverrides.delete(sessionId)
   runtimeTransitionPromises.delete(sessionId)
   sessionStartupPromises.delete(sessionId)
+  lastResolvedStartupWorkDirs.delete(sessionId)
   clearPrewarmState(sessionId)
 }
 
@@ -758,6 +766,7 @@ async function ensureCliSessionStarted(
 
   const startup = (async () => {
     const workDir = await resolveSessionWorkDir(sessionId)
+    lastResolvedStartupWorkDirs.set(sessionId, workDir)
     const runtimeSettings = await getRuntimeSettings(sessionId)
     const sdkUrl =
       `ws://${ws.data.serverHost}:${ws.data.serverPort}/sdk/${sessionId}` +
@@ -1223,14 +1232,28 @@ function rebindSessionOutput(
   })
 }
 
-async function getRuntimeSettings(sessionId?: string): Promise<{
+type RuntimeSettings = {
   permissionMode?: string
   model?: string
   effort?: string
   providerId?: string | null
-}> {
+}
+
+async function getRuntimeSettings(sessionId?: string): Promise<RuntimeSettings> {
   const runtimeOverride = sessionId ? runtimeOverrides.get(sessionId) : undefined
   if (runtimeOverride) {
+    if (typeof runtimeOverride.providerId === 'string') {
+      const { providers } = await providerService.listProviders()
+      const providerExists = providers.some((provider) => provider.id === runtimeOverride.providerId)
+      if (!providerExists) {
+        console.warn(
+          `[WS] Ignoring stale runtime provider id for ${sessionId}: ${runtimeOverride.providerId}`,
+        )
+        runtimeOverrides.delete(sessionId!)
+        return getDefaultRuntimeSettings()
+      }
+    }
+
     const userSettings = await settingsService.getUserSettings()
     const effort =
       typeof userSettings.effort === 'string' && userSettings.effort.trim()
@@ -1245,10 +1268,21 @@ async function getRuntimeSettings(sessionId?: string): Promise<{
     }
   }
 
+  return getDefaultRuntimeSettings()
+}
+
+async function getDefaultRuntimeSettings(): Promise<RuntimeSettings> {
   // Check if a custom provider is active
-  const { activeId } = await providerService.listProviders()
+  const { providers, activeId } = await providerService.listProviders()
+  let resolvedActiveId = activeId
+  if (activeId && !providers.some((provider) => provider.id === activeId)) {
+    console.warn(`[WS] Active provider id is stale, falling back to official provider: ${activeId}`)
+    resolvedActiveId = null
+    await providerService.activateOfficial()
+  }
+
   const userSettings = await settingsService.getUserSettings()
-  const providerSettings = activeId
+  const providerSettings = resolvedActiveId
     ? await providerService.getManagedSettings()
     : undefined
   const modelSettings = providerSettings ?? userSettings
@@ -1262,7 +1296,7 @@ async function getRuntimeSettings(sessionId?: string): Promise<{
       : undefined
 
   let model: string | undefined
-  if (activeId) {
+  if (resolvedActiveId) {
     // Provider is active — only consult provider-managed cc-haha settings.
     // Global ~/.claude/settings.json model values must not bleed into provider mode.
     const baseModel =
@@ -1286,8 +1320,56 @@ async function getRuntimeSettings(sessionId?: string): Promise<{
     permissionMode: await settingsService.getPermissionMode().catch(() => undefined),
     model,
     effort,
-    providerId: activeId,
+    providerId: resolvedActiveId,
   }
+}
+
+async function buildSessionStartupDiagnosticMessage(
+  sessionId: string,
+  cause: string,
+): Promise<string> {
+  const lines = [
+    cause,
+    '',
+    'Desktop service diagnostics:',
+    `- sessionId: ${sessionId}`,
+  ]
+
+  try {
+    const recentWorkDir = lastResolvedStartupWorkDirs.get(sessionId)
+    const workDir =
+      recentWorkDir ||
+      conversationService.getSessionWorkDir(sessionId) ||
+      await sessionService.getSessionWorkDir(sessionId)
+    lines.push(`- workDir: ${workDir ?? '(unknown)'}`)
+  } catch (err) {
+    lines.push(`- workDir: failed to resolve (${err instanceof Error ? err.message : String(err)})`)
+  }
+
+  const runtimeOverride = runtimeOverrides.get(sessionId)
+  if (runtimeOverride) {
+    lines.push(`- runtimeOverride.providerId: ${runtimeOverride.providerId ?? '(official)'}`)
+    lines.push(`- runtimeOverride.modelId: ${runtimeOverride.modelId}`)
+  } else {
+    lines.push('- runtimeOverride: (none)')
+  }
+
+  try {
+    const { providers, activeId } = await providerService.listProviders()
+    lines.push(`- activeProviderId: ${activeId ?? '(official)'}`)
+    lines.push(`- configuredProviders: ${providers.length}`)
+    if (providers.length > 0) {
+      lines.push(
+        `- providerIndex: ${providers
+          .map((provider) => `${provider.name} (${provider.id})`)
+          .join(', ')}`,
+      )
+    }
+  } catch (err) {
+    lines.push(`- providers: failed to read (${err instanceof Error ? err.message : String(err)})`)
+  }
+
+  return lines.join('\n')
 }
 
 function enqueueRuntimeTransition(
