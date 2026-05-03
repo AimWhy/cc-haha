@@ -93,6 +93,7 @@ describe('Adapters API', () => {
         accountId: 'bot-1',
         botToken: 'wechat-secret-token',
         userId: 'wx-user',
+        allowedUsers: ['wx-allowed-user'],
         pairedUsers: [{ userId: 'wx-user', displayName: 'WeChat User', pairedAt: 1 }],
       },
     })
@@ -104,6 +105,8 @@ describe('Adapters API', () => {
     const json = await res.json() as any
     expect(json.wechat.botToken).toBeUndefined()
     expect(json.wechat.accountId).toBeUndefined()
+    expect(json.wechat.userId).toBeUndefined()
+    expect(json.wechat.allowedUsers).toEqual([])
     expect(json.wechat.pairedUsers).toEqual([])
   })
 })

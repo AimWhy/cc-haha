@@ -53,12 +53,35 @@ export type WechatQrPollResult = {
 
 export type WechatMessageItem = {
   type?: number
+  msg_id?: string
   text_item?: { text?: string }
   voice_item?: { text?: string }
+  media?: WechatCdnMedia
+  image_item?: {
+    media?: WechatCdnMedia
+    thumb_media?: WechatCdnMedia
+    aeskey?: string
+    url?: string
+  }
+  file_item?: {
+    media?: WechatCdnMedia
+    file_name?: string
+    len?: string
+  }
+  video_item?: {
+    media?: WechatCdnMedia
+    thumb_media?: WechatCdnMedia
+  }
   ref_msg?: {
     title?: string
     message_item?: WechatMessageItem
   }
+}
+
+export type WechatCdnMedia = {
+  encrypt_query_param?: string
+  aes_key?: string
+  full_url?: string
 }
 
 export type WechatMessage = {
@@ -259,6 +282,51 @@ export async function sendWechatText(params: {
     token: params.token,
     timeoutMs: params.timeoutMs ?? API_TIMEOUT_MS,
     label: 'wechatSendMessage',
+  })
+}
+
+export async function getWechatConfig(params: {
+  baseUrl: string
+  token: string
+  ilinkUserId: string
+  contextToken?: string
+  timeoutMs?: number
+}): Promise<{ ret?: number; errmsg?: string; typing_ticket?: string }> {
+  const rawText = await apiPostFetch({
+    baseUrl: params.baseUrl,
+    endpoint: 'ilink/bot/getconfig',
+    body: JSON.stringify({
+      ilink_user_id: params.ilinkUserId,
+      context_token: params.contextToken,
+      base_info: buildBaseInfo(),
+    }),
+    token: params.token,
+    timeoutMs: params.timeoutMs ?? 10_000,
+    label: 'wechatGetConfig',
+  })
+  return JSON.parse(rawText) as { ret?: number; errmsg?: string; typing_ticket?: string }
+}
+
+export async function sendWechatTyping(params: {
+  baseUrl: string
+  token: string
+  ilinkUserId: string
+  typingTicket: string
+  status: 'typing' | 'cancel'
+  timeoutMs?: number
+}): Promise<void> {
+  await apiPostFetch({
+    baseUrl: params.baseUrl,
+    endpoint: 'ilink/bot/sendtyping',
+    body: JSON.stringify({
+      ilink_user_id: params.ilinkUserId,
+      typing_ticket: params.typingTicket,
+      status: params.status === 'typing' ? 1 : 2,
+      base_info: buildBaseInfo(),
+    }),
+    token: params.token,
+    timeoutMs: params.timeoutMs ?? 10_000,
+    label: 'wechatSendTyping',
   })
 }
 

@@ -54,6 +54,7 @@ type AdapterStore = {
   removePairedUser: (platform: 'telegram' | 'feishu' | 'wechat' | 'dingtalk', userId: string | number) => Promise<void>
   beginDingtalkRegistration: () => Promise<DingtalkRegistrationBegin>
   pollDingtalkRegistration: (deviceCode: string) => Promise<DingtalkRegistrationPoll>
+  unbindWechatAccount: () => Promise<void>
   unbindDingtalkBot: () => Promise<void>
 }
 
@@ -124,6 +125,12 @@ export const useAdapterStore = create<AdapterStore>((set, get) => ({
     return result
   },
 
+  unbindWechatAccount: async () => {
+    const config = await adaptersApi.unbindWechat()
+    set({ config })
+    void notifyTauriRestartAdapters()
+  },
+
   unbindDingtalkBot: async () => {
     await get().updateConfig({
       dingtalk: {
@@ -135,13 +142,6 @@ export const useAdapterStore = create<AdapterStore>((set, get) => ({
   },
 
   removePairedUser: async (platform, userId) => {
-    if (platform === 'wechat') {
-      const config = await adaptersApi.unbindWechat()
-      set({ config })
-      void notifyTauriRestartAdapters()
-      return
-    }
-
     const { config } = get()
     const platformConfig = config[platform]
     if (!platformConfig) return

@@ -23,6 +23,7 @@ export function AdapterSettings() {
     removePairedUser,
     beginDingtalkRegistration,
     pollDingtalkRegistration,
+    unbindWechatAccount,
     unbindDingtalkBot,
   } = useAdapterStore()
 
@@ -51,6 +52,7 @@ export function AdapterSettings() {
   const [wechatSessionKey, setWechatSessionKey] = useState<string | null>(null)
   const [wechatStatus, setWechatStatus] = useState('')
   const [isWechatBinding, setIsWechatBinding] = useState(false)
+  const [isUnbindingWechatAccount, setIsUnbindingWechatAccount] = useState(false)
 
   // DingTalk
   const [dtClientId, setDtClientId] = useState('')
@@ -303,6 +305,23 @@ export function AdapterSettings() {
     }
   }, [beginDingtalkRegistration, t])
 
+  const handleUnbindWechatAccount = useCallback(async () => {
+    setIsUnbindingWechatAccount(true)
+    setWechatStatus('')
+    try {
+      await unbindWechatAccount()
+      await fetchConfig()
+      setWechatQrUrl(null)
+      setWechatSessionKey(null)
+      setWechatStatus(t('settings.adapters.wechatUnbound'))
+    } catch (err) {
+      setWechatStatus(err instanceof Error ? err.message : t('settings.adapters.wechatUnbindFailed'))
+    } finally {
+      setIsUnbindingWechatAccount(false)
+      setIsWechatBinding(false)
+    }
+  }, [unbindWechatAccount, fetchConfig, t])
+
   const handleUnbindDingtalkBot = useCallback(async () => {
     setIsUnbindingDtBot(true)
     setDtAuthError('')
@@ -544,9 +563,16 @@ export function AdapterSettings() {
                     {t('settings.adapters.wechatQrHint')}
                   </p>
                 </div>
-                <Button onClick={handleWechatBind} loading={isWechatBinding && !wechatQrUrl}>
-                  {config.wechat?.accountId ? t('settings.adapters.wechatRebind') : t('settings.adapters.wechatBind')}
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button onClick={handleWechatBind} loading={isWechatBinding && !wechatQrUrl} size="sm">
+                    {config.wechat?.accountId ? t('settings.adapters.wechatRebind') : t('settings.adapters.wechatBind')}
+                  </Button>
+                  {config.wechat?.accountId && (
+                    <Button onClick={handleUnbindWechatAccount} loading={isUnbindingWechatAccount} size="sm" variant="danger">
+                      {t('settings.adapters.wechatUnbindAccount')}
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {wechatQrUrl && (

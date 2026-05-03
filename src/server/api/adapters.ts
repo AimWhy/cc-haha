@@ -188,17 +188,13 @@ async function handleWechatAdaptersApi(req: Request, tail: string[]): Promise<Re
     if (!body.sessionKey) throw ApiError.badRequest('Missing sessionKey')
     const result = await pollWechatLoginWithQr({ sessionKey: body.sessionKey })
     if (result.connected) {
-      const pairedUsers = result.userId
-        ? [{ userId: result.userId, displayName: 'WeChat User', pairedAt: Date.now() }]
-        : []
       await adapterService.updateConfig({
         wechat: {
           accountId: result.accountId,
           botToken: result.botToken,
           baseUrl: result.baseUrl || WECHAT_DEFAULT_BASE_URL,
           userId: result.userId,
-          pairedUsers,
-          allowedUsers: [],
+          pairedUsers: [],
         },
       })
     }

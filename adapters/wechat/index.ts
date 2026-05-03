@@ -1,6 +1,7 @@
 import * as path from 'node:path'
-import { WsBridge, type ServerMessage } from '../common/ws-bridge.js'
+import { WsBridge, type ServerMessage, type AttachmentRef } from '../common/ws-bridge.js'
 import { MessageDedup } from '../common/message-dedup.js'
+import { MessageBuffer } from '../common/message-buffer.js'
 import { enqueue } from '../common/chat-queue.js'
 import { getConfiguredWorkDir, loadConfig } from '../common/config.js'
 import {
@@ -11,14 +12,19 @@ import {
 } from '../common/format.js'
 import { SessionStore } from '../common/session-store.js'
 import { AdapterHttpClient } from '../common/http-client.js'
-import { isAllowedUser } from '../common/pairing.js'
+import { isAllowedUser, tryPair } from '../common/pairing.js'
+import { AttachmentStore } from '../common/attachment/attachment-store.js'
+import { checkAttachmentLimit } from '../common/attachment/attachment-limits.js'
 import {
   extractWechatText,
+  getWechatConfig,
   getWechatUpdates,
+  sendWechatTyping,
   sendWechatText,
   WECHAT_DEFAULT_BASE_URL,
   type WechatMessage,
 } from './protocol.js'
+import { collectWechatMediaCandidates, WechatMediaService } from './media.js'
 
 const WECHAT_TEXT_LIMIT = 3500
 const GET_UPDATES_TIMEOUT_MS = 35_000
@@ -37,14 +43,21 @@ const dedup = new MessageDedup()
 const sessionStore = new SessionStore()
 const httpClient = new AdapterHttpClient(config.serverUrl)
 const defaultWorkDir = getConfiguredWorkDir(config, config.wechat)
+const attachmentStore = new AttachmentStore()
+const media = new WechatMediaService(attachmentStore)
 const pendingProjectSelection = new Map<string, boolean>()
 const runtimeStates = new Map<string, ChatRuntimeState>()
-const accumulatedText = new Map<string, string>()
+const blockBuffers = new Map<string, MessageBuffer>()
 const contextTokens = new Map<string, string>()
+const typingTickets = new Map<string, string>()
 const pendingPermissions = new Map<string, Set<string>>()
 
 let getUpdatesBuf = ''
 let stopped = false
+
+attachmentStore.gc().catch((err) => {
+  console.warn('[WeChat] AttachmentStore.gc failed:', err instanceof Error ? err.message : err)
+})
 
 type ChatRuntimeState = {
   state: 'idle' | 'thinking' | 'streaming' | 'tool_executing' | 'permission_pending'
@@ -77,8 +90,50 @@ async function sendText(chatId: string, text: string): Promise<void> {
   console.log(`[WeChat] Sent ${chunks.length} message chunk(s) to ${redactChatId(chatId)}`)
 }
 
+function getBlockBuffer(chatId: string): MessageBuffer {
+  let buffer = blockBuffers.get(chatId)
+  if (!buffer) {
+    buffer = new MessageBuffer(
+      async (text) => {
+        if (text.trim()) await sendText(chatId, text)
+      },
+      3000,
+      200,
+    )
+    blockBuffers.set(chatId, buffer)
+  }
+  return buffer
+}
+
+async function sendTypingIndicator(chatId: string, status: 'typing' | 'cancel'): Promise<void> {
+  try {
+    let typingTicket = typingTickets.get(chatId)
+    if (!typingTicket && status === 'typing') {
+      const configResp = await getWechatConfig({
+        baseUrl,
+        token: botToken,
+        ilinkUserId: chatId,
+        contextToken: contextTokens.get(chatId),
+      })
+      typingTicket = configResp.typing_ticket
+      if (typingTicket) typingTickets.set(chatId, typingTicket)
+    }
+    if (!typingTicket) return
+    await sendWechatTyping({
+      baseUrl,
+      token: botToken,
+      ilinkUserId: chatId,
+      typingTicket,
+      status,
+    })
+  } catch (err) {
+    console.warn('[WeChat] sendTyping failed:', err instanceof Error ? err.message : err)
+  }
+}
+
 function clearTransientChatState(chatId: string): void {
-  accumulatedText.delete(chatId)
+  blockBuffers.get(chatId)?.reset()
+  blockBuffers.delete(chatId)
   pendingPermissions.delete(chatId)
   const runtime = getRuntimeState(chatId)
   runtime.state = 'idle'
@@ -226,10 +281,15 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     case 'status':
       runtime.state = msg.state
       runtime.verb = typeof msg.verb === 'string' ? msg.verb : undefined
+      if (msg.state === 'thinking' || msg.state === 'tool_executing') {
+        void sendTypingIndicator(chatId, 'typing')
+      } else if (msg.state === 'idle') {
+        void sendTypingIndicator(chatId, 'cancel')
+      }
       break
     case 'content_delta':
       if (typeof msg.text === 'string' && msg.text) {
-        accumulatedText.set(chatId, (accumulatedText.get(chatId) ?? '') + msg.text)
+        getBlockBuffer(chatId).append(msg.text)
       }
       break
     case 'permission_request': {
@@ -250,15 +310,17 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     case 'message_complete': {
       runtime.state = 'idle'
       runtime.verb = undefined
-      const text = accumulatedText.get(chatId)
-      accumulatedText.delete(chatId)
-      if (text?.trim()) await sendText(chatId, text)
+      void sendTypingIndicator(chatId, 'cancel')
+      await blockBuffers.get(chatId)?.complete()
+      blockBuffers.delete(chatId)
       break
     }
     case 'error':
       runtime.state = 'idle'
       runtime.verb = undefined
-      accumulatedText.delete(chatId)
+      void sendTypingIndicator(chatId, 'cancel')
+      blockBuffers.get(chatId)?.reset()
+      blockBuffers.delete(chatId)
       await sendText(chatId, `错误: ${msg.message}`)
       break
     case 'system_notification':
@@ -278,33 +340,43 @@ async function routeUserMessage(message: WechatMessage): Promise<void> {
   if (message.context_token) contextTokens.set(chatId, message.context_token)
 
   const text = extractWechatText(message.item_list).trim()
-  if (!text) return
+  const mediaCandidates = collectWechatMediaCandidates(message.item_list)
+  if (!text && mediaCandidates.length === 0) return
   console.log(`[WeChat] Received from ${redactChatId(chatId)}: ${text.slice(0, 80)}`)
 
   if (!isAllowedUser('wechat', chatId)) {
-    await sendText(chatId, '未绑定。请在 Claude Code 桌面端「设置 -> IM 接入 -> 微信」中扫码绑定。')
+    const success = text
+      ? tryPair(text, { userId: chatId, displayName: 'WeChat User' }, 'wechat')
+      : false
+    await sendText(
+      chatId,
+      success
+        ? '配对成功！现在可以开始聊天了。\n\n发送消息即可与 Claude 对话。'
+        : '未授权。请先在 Claude Code 桌面端完成微信扫码绑定，再生成 IM 配对码后发送给我。',
+    )
     return
   }
 
   enqueue(chatId, async () => {
-    if (text === '/help' || text === '帮助') {
+    const hasAttachments = mediaCandidates.length > 0
+    if (!hasAttachments && (text === '/help' || text === '帮助')) {
       await sendText(chatId, formatImHelp())
       return
     }
-    if (text === '/status' || text === '状态') {
+    if (!hasAttachments && (text === '/status' || text === '状态')) {
       await sendText(chatId, await buildStatusText(chatId))
       return
     }
-    if (text === '/projects' || text === '项目列表') {
+    if (!hasAttachments && (text === '/projects' || text === '项目列表')) {
       await showProjectPicker(chatId)
       return
     }
-    if (text === '/new' || text === '新会话' || text.startsWith('/new ')) {
+    if (!hasAttachments && (text === '/new' || text === '新会话' || text.startsWith('/new '))) {
       const arg = text.startsWith('/new ') ? text.slice(5).trim() : ''
       await startNewSession(chatId, arg || undefined)
       return
     }
-    if (text === '/stop' || text === '停止') {
+    if (!hasAttachments && (text === '/stop' || text === '停止')) {
       const stored = await ensureExistingSession(chatId)
       if (!stored) {
         await sendText(chatId, formatImStatus(null))
@@ -314,7 +386,7 @@ async function routeUserMessage(message: WechatMessage): Promise<void> {
       await sendText(chatId, '已发送停止信号。')
       return
     }
-    if (text === '/clear' || text === '清空') {
+    if (!hasAttachments && (text === '/clear' || text === '清空')) {
       const stored = await ensureExistingSession(chatId)
       if (!stored) {
         await sendText(chatId, formatImStatus(null))
@@ -325,7 +397,7 @@ async function routeUserMessage(message: WechatMessage): Promise<void> {
       await sendText(chatId, sent ? '已清空当前会话上下文。' : '无法发送 /clear，请先发送 /new 重新连接会话。')
       return
     }
-    if (text.startsWith('/allow ') || text.startsWith('/deny ')) {
+    if (!hasAttachments && (text.startsWith('/allow ') || text.startsWith('/deny '))) {
       const requestId = text.split(/\s+/)[1]
       if (!requestId) return
       const allowed = text.startsWith('/allow ')
@@ -336,16 +408,67 @@ async function routeUserMessage(message: WechatMessage): Promise<void> {
       await sendText(chatId, sent ? (allowed ? '已允许。' : '已拒绝。') : '权限响应发送失败，请检查会话状态。')
       return
     }
-    if (pendingProjectSelection.has(chatId)) {
+    if (!hasAttachments && pendingProjectSelection.has(chatId)) {
       await startNewSession(chatId, text)
       return
     }
 
     const ready = await ensureSession(chatId)
     if (!ready) return
-    const sent = bridge.sendUserMessage(chatId, text)
+    const attachments = await collectAttachments(chatId, mediaCandidates)
+    const effectiveText = text || (attachments.length > 0 ? '(用户发送了附件)' : '')
+    if (!effectiveText && attachments.length === 0) return
+    void sendTypingIndicator(chatId, 'typing')
+    const sent = bridge.sendUserMessage(chatId, effectiveText, attachments.length ? attachments : undefined)
     if (!sent) await sendText(chatId, '消息发送失败，连接可能已断开。请发送 /new 重新开始。')
   })
+}
+
+async function collectAttachments(
+  chatId: string,
+  candidates: ReturnType<typeof collectWechatMediaCandidates>,
+): Promise<AttachmentRef[]> {
+  if (candidates.length === 0) return []
+  const stored = sessionStore.get(chatId)
+  const sessionId = stored?.sessionId ?? chatId
+  const settled = await Promise.allSettled(candidates.map((candidate) => media.downloadCandidate(candidate, sessionId)))
+  const attachments: AttachmentRef[] = []
+  let failures = 0
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      failures += 1
+      console.error('[WeChat] media download failed:', result.reason)
+      continue
+    }
+    const local = result.value
+    const check = checkAttachmentLimit(local.kind, local.size, local.mimeType)
+    if (!check.ok) {
+      await sendText(chatId, check.hint)
+      continue
+    }
+    if (local.kind === 'image') {
+      attachments.push({
+        type: 'image',
+        name: local.name,
+        data: local.buffer.toString('base64'),
+        mimeType: local.mimeType,
+      })
+    } else {
+      attachments.push({
+        type: 'file',
+        name: local.name,
+        path: local.path,
+        mimeType: local.mimeType,
+      })
+    }
+  }
+  if (failures > 0) {
+    await sendText(
+      chatId,
+      failures === candidates.length ? '附件下载失败，请稍后重试。' : `${failures} 个附件下载失败，已跳过。`,
+    )
+  }
+  return attachments
 }
 
 async function pollLoop(): Promise<void> {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  extractDingTalkAttachments,
   extractDingTalkText,
   getDingTalkChatId,
   getDingTalkSenderId,
@@ -36,5 +37,22 @@ describe('DingTalk helpers', () => {
         ],
       },
     })).toBe('hello world')
+  })
+
+  it('extracts image and file attachment candidates', () => {
+    expect(extractDingTalkAttachments({
+      msgtype: 'picture',
+      content: { pictureUrl: 'https://example.com/a.jpg', downloadCode: 'pic-code' },
+    })).toEqual([{ kind: 'image', url: 'https://example.com/a.jpg', downloadCode: 'pic-code' }])
+
+    expect(extractDingTalkAttachments({
+      msgtype: 'file',
+      content: '{"fileName":"report.pdf","downloadCode":"file-code"}',
+    })).toEqual([{ kind: 'file', downloadCode: 'file-code', fileName: 'report.pdf' }])
+
+    expect(extractDingTalkAttachments({
+      msgtype: 'richText',
+      content: { richText: [{ text: 'hi' }, { type: 'picture', downloadCode: 'rich-pic' }] },
+    })).toEqual([{ kind: 'image', url: undefined, downloadCode: 'rich-pic' }])
   })
 })

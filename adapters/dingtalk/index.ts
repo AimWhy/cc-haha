@@ -7,7 +7,7 @@
 
 import path from 'node:path'
 import { DWClient, TOPIC_ROBOT } from 'dingtalk-stream'
-import { WsBridge, type ServerMessage } from '../common/ws-bridge.js'
+import { WsBridge, type ServerMessage, type AttachmentRef } from '../common/ws-bridge.js'
 import { MessageDedup } from '../common/message-dedup.js'
 import { MessageBuffer } from '../common/message-buffer.js'
 import { enqueue } from '../common/chat-queue.js'
@@ -16,7 +16,10 @@ import { formatImHelp, formatImStatus, formatPermissionRequest, splitMessage } f
 import { SessionStore } from '../common/session-store.js'
 import { AdapterHttpClient, type RecentProject } from '../common/http-client.js'
 import { isAllowedUser, tryPair } from '../common/pairing.js'
+import { AttachmentStore } from '../common/attachment/attachment-store.js'
+import { checkAttachmentLimit } from '../common/attachment/attachment-limits.js'
 import {
+  extractDingTalkAttachments,
   extractDingTalkText,
   getDingTalkChatId,
   getDingTalkSenderId,
@@ -24,6 +27,12 @@ import {
   parseDingTalkPayload,
   type DingTalkRobotMessage,
 } from './helpers.js'
+import { DingTalkMediaService } from './media.js'
+import {
+  DingTalkAiCardService,
+  type DingTalkAiCardInstance,
+  type DingTalkAiCardTarget,
+} from './ai-card.js'
 
 const DINGTALK_API = 'https://api.dingtalk.com'
 
@@ -38,13 +47,23 @@ const bridge = new WsBridge(config.serverUrl, 'dingtalk')
 const dedup = new MessageDedup()
 const sessionStore = new SessionStore()
 const httpClient = new AdapterHttpClient(config.serverUrl)
+const attachmentStore = new AttachmentStore()
+const media = new DingTalkMediaService(attachmentStore)
+const aiCards = new DingTalkAiCardService(getAccessToken, config.dingtalk.clientId)
 const sessionWebhooks = new Map<string, string>()
 const pendingProjectSelection = new Map<string, boolean>()
 const runtimeStates = new Map<string, ChatRuntimeState>()
-const responseBuffers = new Map<string, MessageBuffer>()
+const aiCardBuffers = new Map<string, MessageBuffer>()
+const aiCardTargets = new Map<string, DingTalkAiCardTarget>()
+const streamingCards = new Map<string, Promise<DingTalkAiCardInstance | null>>()
+const streamingCardText = new Map<string, string>()
 const pendingPermissions = new Map<string, Set<string>>()
 
 let accessTokenCache: { token: string; expiresAt: number } | null = null
+
+attachmentStore.gc().catch((err) => {
+  console.warn('[DingTalk] AttachmentStore.gc failed:', err instanceof Error ? err.message : err)
+})
 
 type ChatRuntimeState = {
   state: 'idle' | 'thinking' | 'streaming' | 'tool_executing' | 'permission_pending'
@@ -118,22 +137,65 @@ async function sendText(chatId: string, text: string): Promise<void> {
   }
 }
 
-function getResponseBuffer(chatId: string): MessageBuffer {
-  let buffer = responseBuffers.get(chatId)
+function getAiCardBuffer(chatId: string): MessageBuffer {
+  let buffer = aiCardBuffers.get(chatId)
   if (!buffer) {
     buffer = new MessageBuffer(
-      async (text) => sendText(chatId, text),
-      900,
+      async (text, isComplete) => flushToAiCard(chatId, text, isComplete),
       1200,
+      200,
     )
-    responseBuffers.set(chatId, buffer)
+    aiCardBuffers.set(chatId, buffer)
   }
   return buffer
 }
 
+function getOrCreateAiCard(chatId: string): Promise<DingTalkAiCardInstance | null> | null {
+  const target = aiCardTargets.get(chatId)
+  if (!target) return null
+
+  let card = streamingCards.get(chatId)
+  if (!card) {
+    card = aiCards.createForTarget(target)
+    streamingCards.set(chatId, card)
+  }
+  return card
+}
+
+async function flushToAiCard(chatId: string, newText: string, isComplete: boolean): Promise<void> {
+  const fullText = (streamingCardText.get(chatId) ?? '') + newText
+  streamingCardText.set(chatId, fullText)
+  if (!fullText.trim()) return
+
+  const cardPromise = getOrCreateAiCard(chatId)
+  const card = cardPromise ? await cardPromise : null
+  if (!card) {
+    if (isComplete) await sendText(chatId, fullText)
+    return
+  }
+
+  try {
+    if (isComplete) {
+      await aiCards.finish(card, fullText)
+      streamingCards.delete(chatId)
+      streamingCardText.delete(chatId)
+      aiCardBuffers.get(chatId)?.reset()
+      aiCardBuffers.delete(chatId)
+    } else {
+      await aiCards.stream(card, `${fullText} ▍`, false)
+    }
+  } catch (err) {
+    console.warn('[DingTalk][AICard] stream failed, falling back to markdown:', err instanceof Error ? err.message : err)
+    streamingCards.delete(chatId)
+    if (isComplete) await sendText(chatId, fullText)
+  }
+}
+
 function clearTransientChatState(chatId: string): void {
-  responseBuffers.get(chatId)?.reset()
-  responseBuffers.delete(chatId)
+  aiCardBuffers.get(chatId)?.reset()
+  aiCardBuffers.delete(chatId)
+  streamingCards.delete(chatId)
+  streamingCardText.delete(chatId)
   const runtime = getRuntimeState(chatId)
   runtime.state = 'idle'
   runtime.verb = undefined
@@ -221,8 +283,7 @@ async function ensureSession(chatId: string): Promise<boolean> {
 async function createSessionForChat(chatId: string, workDir: string): Promise<boolean> {
   try {
     bridge.resetSession(chatId)
-    responseBuffers.get(chatId)?.reset()
-    responseBuffers.delete(chatId)
+    clearTransientChatState(chatId)
 
     const sessionId = await httpClient.createSession(workDir)
     sessionStore.set(chatId, sessionId, workDir)
@@ -304,11 +365,14 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
       runtime.verb = typeof msg.verb === 'string' ? msg.verb : undefined
       break
     case 'content_start':
-      if (msg.blockType === 'text') runtime.state = 'streaming'
+      if (msg.blockType === 'text') {
+        runtime.state = 'streaming'
+        void getOrCreateAiCard(chatId)
+      }
       if (msg.blockType === 'tool_use') runtime.state = 'tool_executing'
       break
     case 'content_delta':
-      if (typeof msg.text === 'string' && msg.text) getResponseBuffer(chatId).append(msg.text)
+      if (typeof msg.text === 'string' && msg.text) getAiCardBuffer(chatId).append(msg.text)
       break
     case 'tool_use_complete':
       runtime.state = 'streaming'
@@ -325,12 +389,14 @@ async function handleServerMessage(chatId: string, msg: ServerMessage): Promise<
     case 'message_complete':
       runtime.state = 'idle'
       runtime.verb = undefined
-      await responseBuffers.get(chatId)?.complete()
+      await aiCardBuffers.get(chatId)?.complete()
       break
     case 'error':
       runtime.state = 'idle'
       runtime.verb = undefined
-      responseBuffers.get(chatId)?.reset()
+      aiCardBuffers.get(chatId)?.reset()
+      streamingCards.delete(chatId)
+      streamingCardText.delete(chatId)
       await sendText(chatId, `❌ ${msg.message}`)
       break
     case 'system_notification':
@@ -362,31 +428,32 @@ function handlePermissionCommand(chatId: string, text: string): boolean {
   return true
 }
 
-async function routeUserMessage(chatId: string, text: string): Promise<void> {
+async function routeUserMessage(chatId: string, text: string, attachments: AttachmentRef[] = []): Promise<void> {
   enqueue(chatId, async () => {
     const trimmed = text.trim()
+    const hasAttachments = attachments.length > 0
 
-    if (handlePermissionCommand(chatId, trimmed)) return
+    if (!hasAttachments && handlePermissionCommand(chatId, trimmed)) return
 
-    if (pendingProjectSelection.has(chatId)) {
+    if (!hasAttachments && pendingProjectSelection.has(chatId)) {
       if (trimmed) await startNewSession(chatId, trimmed)
       return
     }
 
-    if (trimmed === '/new' || trimmed === '新会话' || trimmed.startsWith('/new ')) {
+    if (!hasAttachments && (trimmed === '/new' || trimmed === '新会话' || trimmed.startsWith('/new '))) {
       const arg = trimmed.startsWith('/new ') ? trimmed.slice(5).trim() : ''
       await startNewSession(chatId, arg || undefined)
       return
     }
-    if (trimmed === '/help' || trimmed === '帮助') {
+    if (!hasAttachments && (trimmed === '/help' || trimmed === '帮助')) {
       await sendText(chatId, formatImHelp())
       return
     }
-    if (trimmed === '/status' || trimmed === '状态') {
+    if (!hasAttachments && (trimmed === '/status' || trimmed === '状态')) {
       await sendText(chatId, await buildStatusText(chatId))
       return
     }
-    if (trimmed === '/clear' || trimmed === '清空') {
+    if (!hasAttachments && (trimmed === '/clear' || trimmed === '清空')) {
       const stored = await ensureExistingSession(chatId)
       if (!stored) {
         await sendText(chatId, formatImStatus(null))
@@ -400,7 +467,7 @@ async function routeUserMessage(chatId: string, text: string): Promise<void> {
       await sendText(chatId, '🧹 已清空当前会话上下文。')
       return
     }
-    if (trimmed === '/stop' || trimmed === '停止') {
+    if (!hasAttachments && (trimmed === '/stop' || trimmed === '停止')) {
       const stored = await ensureExistingSession(chatId)
       if (!stored) {
         await sendText(chatId, formatImStatus(null))
@@ -410,14 +477,16 @@ async function routeUserMessage(chatId: string, text: string): Promise<void> {
       await sendText(chatId, '⏹ 已发送停止信号。')
       return
     }
-    if (trimmed === '/projects' || trimmed === '项目列表') {
+    if (!hasAttachments && (trimmed === '/projects' || trimmed === '项目列表')) {
       await showProjectPicker(chatId)
       return
     }
 
     const ready = await ensureSession(chatId)
-    if (!ready || !trimmed) return
-    if (!bridge.sendUserMessage(chatId, trimmed)) {
+    if (!ready) return
+    const effectiveText = trimmed || (attachments.length > 0 ? '(用户发送了附件)' : '')
+    if (!effectiveText && attachments.length === 0) return
+    if (!bridge.sendUserMessage(chatId, effectiveText, attachments.length ? attachments : undefined)) {
       await sendText(chatId, '⚠️ 消息发送失败，连接可能已断开。请发送 /new 重新开始。')
     }
   })
@@ -429,7 +498,8 @@ async function handleRobotMessage(data: DingTalkRobotMessage): Promise<void> {
   const chatId = getDingTalkChatId(data)
   const userId = getDingTalkSenderId(data)
   const text = extractDingTalkText(data)
-  if (!chatId || !userId || !text) return
+  const mediaCandidates = extractDingTalkAttachments(data)
+  if (!chatId || !userId || (!text && mediaCandidates.length === 0)) return
 
   if (data.sessionWebhook) sessionWebhooks.set(chatId, data.sessionWebhook)
 
@@ -444,7 +514,72 @@ async function handleRobotMessage(data: DingTalkRobotMessage): Promise<void> {
     return
   }
 
-  await routeUserMessage(chatId, text)
+  aiCardTargets.set(chatId, { type: 'user', userId })
+  const attachments = await collectAttachments(chatId, mediaCandidates)
+  await routeUserMessage(chatId, text, attachments)
+}
+
+async function collectAttachments(
+  chatId: string,
+  candidates: ReturnType<typeof extractDingTalkAttachments>,
+): Promise<AttachmentRef[]> {
+  if (candidates.length === 0) return []
+  const stored = sessionStore.get(chatId)
+  const sessionId = stored?.sessionId ?? chatId
+  let token: string
+  try {
+    token = await getAccessToken()
+  } catch (err) {
+    console.error('[DingTalk] access token for attachment download failed:', err)
+    await sendText(chatId, '📎 附件下载授权失败，请稍后重试。')
+    return []
+  }
+
+  const settled = await Promise.allSettled(
+    candidates.map((candidate) =>
+      media.downloadCandidate(candidate, sessionId, {
+        clientId: config.dingtalk.clientId,
+        accessToken: token,
+      }),
+    ),
+  )
+  const attachments: AttachmentRef[] = []
+  let failures = 0
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      failures += 1
+      console.error('[DingTalk] media download failed:', result.reason)
+      continue
+    }
+    const local = result.value
+    const check = checkAttachmentLimit(local.kind, local.size, local.mimeType)
+    if (!check.ok) {
+      await sendText(chatId, check.hint)
+      continue
+    }
+    if (local.kind === 'image') {
+      attachments.push({
+        type: 'image',
+        name: local.name,
+        data: local.buffer.toString('base64'),
+        mimeType: local.mimeType,
+      })
+    } else {
+      attachments.push({
+        type: 'file',
+        name: local.name,
+        path: local.path,
+        mimeType: local.mimeType,
+      })
+    }
+  }
+  if (failures > 0) {
+    await sendText(
+      chatId,
+      failures === candidates.length ? '📎 附件下载失败，请稍后重试。' : `📎 ${failures} 个附件下载失败，已跳过。`,
+    )
+  }
+  return attachments
 }
 
 async function start(): Promise<void> {
