@@ -220,6 +220,17 @@ export const zh: Record<TranslationKey, string> = {
   'settings.providers.apiFormatOpenaiChat': 'OpenAI Chat Completions (代理转换)',
   'settings.providers.apiFormatOpenaiResponses': 'OpenAI Responses API (代理转换)',
   'settings.providers.proxyHint': '请求将通过本地代理转换协议格式',
+  'settings.providers.authStrategy': '认证变量',
+  'settings.providers.authStrategyApiKey': 'API Key (ANTHROPIC_API_KEY)',
+  'settings.providers.authStrategyApiKeyDesc': '直连 Anthropic 官方 API，发送 x-api-key。',
+  'settings.providers.authStrategyAuthToken': 'Bearer Token (ANTHROPIC_AUTH_TOKEN)',
+  'settings.providers.authStrategyAuthTokenDesc': '大多数第三方 Anthropic 兼容服务，发送 Authorization Bearer。',
+  'settings.providers.authStrategyAuthTokenEmptyApiKey': 'Bearer + 清空 API_KEY',
+  'settings.providers.authStrategyAuthTokenEmptyApiKeyDesc': 'OpenRouter/Ollama 等场景，避免回退到 Anthropic API key。',
+  'settings.providers.authStrategyDualSameToken': '两个变量写同一个 Token',
+  'settings.providers.authStrategyDualSameTokenDesc': 'Hugging Face Router 等同时检查两个变量的服务。',
+  'settings.providers.authStrategyDualDummy': '两个变量写 dummy',
+  'settings.providers.authStrategyDualDummyDesc': 'vLLM 等本地兼容服务，只需要占位认证值。',
 
   // Settings > Permissions
   'settings.permissions.title': '权限模式',

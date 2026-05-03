@@ -218,6 +218,17 @@ export const en = {
   'settings.providers.apiFormatOpenaiChat': 'OpenAI Chat Completions (proxy)',
   'settings.providers.apiFormatOpenaiResponses': 'OpenAI Responses API (proxy)',
   'settings.providers.proxyHint': 'Requests will be translated via the local proxy',
+  'settings.providers.authStrategy': 'Auth Variable',
+  'settings.providers.authStrategyApiKey': 'API Key (ANTHROPIC_API_KEY)',
+  'settings.providers.authStrategyApiKeyDesc': 'Direct Anthropic API access using x-api-key.',
+  'settings.providers.authStrategyAuthToken': 'Bearer Token (ANTHROPIC_AUTH_TOKEN)',
+  'settings.providers.authStrategyAuthTokenDesc': 'Most third-party Anthropic-compatible services using Authorization Bearer.',
+  'settings.providers.authStrategyAuthTokenEmptyApiKey': 'Bearer + Empty API_KEY',
+  'settings.providers.authStrategyAuthTokenEmptyApiKeyDesc': 'OpenRouter/Ollama-style setups that must avoid falling back to an Anthropic API key.',
+  'settings.providers.authStrategyDualSameToken': 'Write token to both variables',
+  'settings.providers.authStrategyDualSameTokenDesc': 'Services such as Hugging Face Router that check both variables.',
+  'settings.providers.authStrategyDualDummy': 'Write dummy to both variables',
+  'settings.providers.authStrategyDualDummyDesc': 'Local vLLM-compatible services that only need placeholder auth values.',
 
   // Settings > Permissions
   'settings.permissions.title': 'Permission Mode',

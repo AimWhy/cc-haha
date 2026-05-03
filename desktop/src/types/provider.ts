@@ -2,6 +2,13 @@
 
 export type ApiFormat = 'anthropic' | 'openai_chat' | 'openai_responses'
 
+export type ProviderAuthStrategy =
+  | 'api_key'
+  | 'auth_token'
+  | 'auth_token_empty_api_key'
+  | 'dual_same_token'
+  | 'dual_dummy'
+
 export type ModelMapping = {
   main: string
   haiku: string
@@ -16,6 +23,7 @@ export type SavedProvider = {
   presetId: string
   name: string
   apiKey: string  // masked from server
+  authStrategy?: ProviderAuthStrategy
   baseUrl: string
   apiFormat: ApiFormat
   models: ModelMapping
@@ -28,6 +36,7 @@ export type CreateProviderInput = {
   presetId: string
   name: string
   apiKey: string
+  authStrategy?: ProviderAuthStrategy
   baseUrl: string
   apiFormat?: ApiFormat
   models: ModelMapping
@@ -39,6 +48,7 @@ export type CreateProviderInput = {
 export type UpdateProviderInput = {
   name?: string
   apiKey?: string
+  authStrategy?: ProviderAuthStrategy
   baseUrl?: string
   apiFormat?: ApiFormat
   models?: ModelMapping
@@ -51,6 +61,7 @@ export type TestProviderConfigInput = {
   baseUrl: string
   apiKey: string
   modelId: string
+  authStrategy?: ProviderAuthStrategy
   apiFormat?: ApiFormat
 }
 

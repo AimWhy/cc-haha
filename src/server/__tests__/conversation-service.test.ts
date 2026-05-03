@@ -214,6 +214,8 @@ describe('ConversationService', () => {
     })) as Record<string, string>
 
     expect(env.ANTHROPIC_BASE_URL).toBe('https://api.jiekou.ai/anthropic')
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('provider-key')
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(env.ANTHROPIC_MODEL).toBe('claude-sonnet-4-6')
     expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES).toBe('none')
   })

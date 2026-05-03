@@ -14,6 +14,15 @@ export const ApiFormatSchema = z.enum([
 ])
 export type ApiFormat = z.infer<typeof ApiFormatSchema>
 
+export const ProviderAuthStrategySchema = z.enum([
+  'api_key',
+  'auth_token',
+  'auth_token_empty_api_key',
+  'dual_same_token',
+  'dual_dummy',
+])
+export type ProviderAuthStrategy = z.infer<typeof ProviderAuthStrategySchema>
+
 export const ModelMappingSchema = z.object({
   main: z.string(),
   haiku: z.string(),
@@ -32,6 +41,7 @@ export const SavedProviderSchema = z.object({
   presetId: z.string(),
   name: z.string().min(1),
   apiKey: z.string(),
+  authStrategy: ProviderAuthStrategySchema.optional(),
   baseUrl: z.string(),
   apiFormat: ApiFormatSchema.default('anthropic'),
   models: ModelMappingSchema,
@@ -49,6 +59,7 @@ export const CreateProviderSchema = z.object({
   presetId: z.string().min(1),
   name: z.string().min(1),
   apiKey: z.string(),
+  authStrategy: ProviderAuthStrategySchema.optional(),
   baseUrl: z.string(),
   apiFormat: ApiFormatSchema.default('anthropic'),
   models: ModelMappingSchema,
@@ -60,6 +71,7 @@ export const CreateProviderSchema = z.object({
 export const UpdateProviderSchema = z.object({
   name: z.string().min(1).optional(),
   apiKey: z.string().optional(),
+  authStrategy: ProviderAuthStrategySchema.optional(),
   baseUrl: z.string().optional(),
   apiFormat: ApiFormatSchema.optional(),
   models: ModelMappingSchema.optional(),
@@ -72,6 +84,7 @@ export const TestProviderSchema = z.object({
   baseUrl: z.string().url(),
   apiKey: z.string().min(1),
   modelId: z.string().min(1),
+  authStrategy: ProviderAuthStrategySchema.optional(),
   apiFormat: ApiFormatSchema.default('anthropic'),
 })
 

@@ -2,7 +2,7 @@
  * Unit tests for ProviderService and Providers REST API
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
@@ -245,7 +245,8 @@ describe('ProviderService', () => {
       const settings = await readSettings()
       const env = settings.env as Record<string, string>
       expect(env.ANTHROPIC_BASE_URL).toBe('https://new-api.example.com')
-      expect(env.ANTHROPIC_API_KEY).toBe('sk-new-key')
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-new-key')
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined()
       expect(env.ANTHROPIC_MODEL).toBe('model-main')
     })
 
@@ -384,12 +385,66 @@ describe('ProviderService', () => {
       const settings = await readSettings()
       const env = settings.env as Record<string, string>
       expect(env.ANTHROPIC_BASE_URL).toBe('https://second-api.example.com')
-      expect(env.ANTHROPIC_API_KEY).toBe('sk-second-key')
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-second-key')
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined()
       expect(env.ANTHROPIC_MODEL).toBe('model-main')
       expect(env.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('model-haiku')
       expect(env.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('model-sonnet')
       expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('model-opus')
       expect(env.CLAUDE_CODE_AUTO_COMPACT_WINDOW).toBeUndefined()
+    })
+
+    test('should honor provider auth env strategies on activation and runtime env', async () => {
+      const svc = new ProviderService()
+
+      const apiKeyProvider = await svc.addProvider(sampleInput({
+        apiKey: 'sk-api-key',
+        authStrategy: 'api_key',
+      }))
+      await svc.activateProvider(apiKeyProvider.id)
+      let env = (await readSettings()).env as Record<string, string>
+      expect(env.ANTHROPIC_API_KEY).toBe('sk-api-key')
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+
+      const bearerProvider = await svc.addProvider(sampleInput({
+        apiKey: 'sk-bearer',
+        authStrategy: 'auth_token_empty_api_key',
+      }))
+      await svc.activateProvider(bearerProvider.id)
+      env = (await readSettings()).env as Record<string, string>
+      expect(env.ANTHROPIC_API_KEY).toBe('')
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-bearer')
+
+      const dualProvider = await svc.addProvider(sampleInput({
+        apiKey: 'sk-dual',
+        authStrategy: 'dual_same_token',
+      }))
+      const runtimeEnv = await svc.getProviderRuntimeEnv(dualProvider.id)
+      expect(runtimeEnv.ANTHROPIC_API_KEY).toBe('sk-dual')
+      expect(runtimeEnv.ANTHROPIC_AUTH_TOKEN).toBe('sk-dual')
+
+      const dummyProvider = await svc.addProvider(sampleInput({
+        apiKey: '',
+        authStrategy: 'dual_dummy',
+      }))
+      const dummyRuntimeEnv = await svc.getProviderRuntimeEnv(dummyProvider.id)
+      expect(dummyRuntimeEnv.ANTHROPIC_API_KEY).toBe('dummy')
+      expect(dummyRuntimeEnv.ANTHROPIC_AUTH_TOKEN).toBe('dummy')
+    })
+
+    test('proxy providers keep proxy-managed auth regardless of auth strategy', async () => {
+      const svc = new ProviderService()
+      const provider = await svc.addProvider(sampleInput({
+        apiFormat: 'openai_chat',
+        authStrategy: 'auth_token',
+      }))
+
+      await svc.activateProvider(provider.id)
+
+      const settings = await readSettings()
+      const env = settings.env as Record<string, string>
+      expect(env.ANTHROPIC_API_KEY).toBe('proxy-managed')
+      expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
     })
 
     test('should include preset default env on activation and runtime env', async () => {
@@ -511,6 +566,102 @@ describe('ProviderService', () => {
       expect(active!.baseUrl).toBe(provider.baseUrl)
       expect(active!.apiKey).toBe(provider.apiKey)
       expect(active!.apiFormat).toBe('anthropic')
+    })
+  })
+
+  describe('testProvider', () => {
+    test('should use preset default auth for saved no-key Anthropic-compatible providers', async () => {
+      const originalFetch = globalThis.fetch
+      const calls: Array<{ headers: Record<string, string> }> = []
+      globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
+        calls.push({ headers: init?.headers as Record<string, string> })
+        return new Response(JSON.stringify({
+          type: 'message',
+          model: 'lmstudio-model',
+          content: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }) as typeof fetch
+
+      try {
+        const svc = new ProviderService()
+        const provider = await svc.addProvider(sampleInput({
+          presetId: 'lmstudio',
+          apiKey: '',
+          authStrategy: 'auth_token_empty_api_key',
+          models: {
+            main: 'lmstudio-model',
+            haiku: 'lmstudio-model',
+            sonnet: 'lmstudio-model',
+            opus: 'lmstudio-model',
+          },
+        }))
+
+        const result = await svc.testProvider(provider.id)
+
+        expect(result.connectivity.success).toBe(true)
+        expect(calls[0].headers.Authorization).toBe('Bearer lmstudio')
+        expect(calls[0].headers['x-api-key']).toBeUndefined()
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+  })
+
+  describe('testProviderConfig', () => {
+    test('should use auth strategy headers for Anthropic-compatible tests', async () => {
+      const originalFetch = globalThis.fetch
+      const calls: Array<{ url: string; headers: Record<string, string> }> = []
+      globalThis.fetch = mock(async (url: string | URL | Request, init?: RequestInit) => {
+        calls.push({
+          url: String(url),
+          headers: init?.headers as Record<string, string>,
+        })
+        return new Response(JSON.stringify({
+          type: 'message',
+          model: 'model-main',
+          content: [],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }) as typeof fetch
+
+      try {
+        const svc = new ProviderService()
+        await svc.testProviderConfig({
+          baseUrl: 'https://api.example.com/anthropic',
+          apiKey: 'sk-bearer',
+          modelId: 'model-main',
+          authStrategy: 'auth_token',
+          apiFormat: 'anthropic',
+        })
+        await svc.testProviderConfig({
+          baseUrl: 'https://api.example.com/anthropic',
+          apiKey: 'sk-api',
+          modelId: 'model-main',
+          authStrategy: 'api_key',
+          apiFormat: 'anthropic',
+        })
+        await svc.testProviderConfig({
+          baseUrl: 'https://api.example.com/anthropic',
+          apiKey: 'sk-dual',
+          modelId: 'model-main',
+          authStrategy: 'dual_same_token',
+          apiFormat: 'anthropic',
+        })
+
+        expect(calls[0].headers.Authorization).toBe('Bearer sk-bearer')
+        expect(calls[0].headers['x-api-key']).toBeUndefined()
+        expect(calls[1].headers['x-api-key']).toBe('sk-api')
+        expect(calls[1].headers.Authorization).toBeUndefined()
+        expect(calls[2].headers['x-api-key']).toBe('sk-dual')
+        expect(calls[2].headers.Authorization).toBe('Bearer sk-dual')
+      } finally {
+        globalThis.fetch = originalFetch
+      }
     })
   })
 })
@@ -694,7 +845,8 @@ describe('Providers API', () => {
     const settings = await readSettings()
     const env = settings.env as Record<string, string>
     expect(env.ANTHROPIC_BASE_URL).toBe('https://second.example.com')
-    expect(env.ANTHROPIC_API_KEY).toBe('sk-second')
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-second')
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined()
     expect(env.ANTHROPIC_MODEL).toBe('model-main')
   })
 

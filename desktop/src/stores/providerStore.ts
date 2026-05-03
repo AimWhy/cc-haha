@@ -29,7 +29,7 @@ type ProviderStore = {
   deleteProvider: (id: string) => Promise<void>
   activateProvider: (id: string) => Promise<void>
   activateOfficial: () => Promise<void>
-  testProvider: (id: string, overrides?: { baseUrl?: string; modelId?: string; apiFormat?: string }) => Promise<ProviderTestResult>
+  testProvider: (id: string, overrides?: { baseUrl?: string; modelId?: string; apiFormat?: string; authStrategy?: string }) => Promise<ProviderTestResult>
   testConfig: (input: TestProviderConfigInput) => Promise<ProviderTestResult>
 }
 

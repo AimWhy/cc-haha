@@ -9,7 +9,7 @@ import { Button } from '../components/shared/Button'
 import { Dropdown } from '../components/shared/Dropdown'
 import type { PermissionMode, EffortLevel, ThemeMode, WebSearchMode } from '../types/settings'
 import type { Locale } from '../i18n'
-import type { SavedProvider, UpdateProviderInput, ProviderTestResult, ModelMapping, ApiFormat } from '../types/provider'
+import type { SavedProvider, UpdateProviderInput, ProviderTestResult, ModelMapping, ApiFormat, ProviderAuthStrategy } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
 import { AdapterSettings } from './AdapterSettings'
 import { useAgentStore } from '../stores/agentStore'
@@ -349,6 +349,8 @@ const MODEL_CONTEXT_WINDOWS_ENV_KEY = 'CLAUDE_CODE_MODEL_CONTEXT_WINDOWS'
 const MODEL_CONTEXT_WINDOW_MIN = 16000
 const MODEL_CONTEXT_WINDOW_MAX = 10000000
 const MODEL_SLOTS = ['main', 'haiku', 'sonnet', 'opus'] as const
+const DEFAULT_PROVIDER_AUTH_STRATEGY: ProviderAuthStrategy = 'auth_token'
+const AUTH_ENV_KEYS = new Set(['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'])
 type ModelSlot = typeof MODEL_SLOTS[number]
 type ModelContextInputs = Record<ModelSlot, string>
 
@@ -358,6 +360,58 @@ function formatContextWindow(value: number): string {
 
 function getPresetAutoCompactWindow(preset: ProviderPreset): string {
   return preset.defaultEnv?.[AUTO_COMPACT_WINDOW_ENV_KEY] ?? ''
+}
+
+function getPresetAuthStrategy(preset: ProviderPreset): ProviderAuthStrategy {
+  return preset.authStrategy ?? DEFAULT_PROVIDER_AUTH_STRATEGY
+}
+
+function omitAuthEnv(env: Record<string, string> | undefined): Record<string, string> {
+  if (!env) return {}
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !AUTH_ENV_KEYS.has(key.toUpperCase())),
+  )
+}
+
+function getProviderAuthValue(apiKey: string, preset: ProviderPreset): string {
+  return apiKey || preset.defaultEnv?.ANTHROPIC_AUTH_TOKEN || preset.defaultEnv?.ANTHROPIC_API_KEY || (preset.needsApiKey ? '(your API key)' : '')
+}
+
+function buildSettingsJsonAuthEnv(
+  apiFormat: ApiFormat,
+  authStrategy: ProviderAuthStrategy,
+  apiKey: string,
+  preset: ProviderPreset,
+): Record<string, string> {
+  if (apiFormat !== 'anthropic') {
+    return { ANTHROPIC_API_KEY: 'proxy-managed' }
+  }
+
+  const value = getProviderAuthValue(apiKey, preset)
+  switch (authStrategy) {
+    case 'api_key':
+      return value ? { ANTHROPIC_API_KEY: value } : {}
+    case 'auth_token':
+      return value ? { ANTHROPIC_AUTH_TOKEN: value } : {}
+    case 'auth_token_empty_api_key':
+      return {
+        ANTHROPIC_API_KEY: '',
+        ...(value ? { ANTHROPIC_AUTH_TOKEN: value } : {}),
+      }
+    case 'dual_same_token':
+      return value ? { ANTHROPIC_API_KEY: value, ANTHROPIC_AUTH_TOKEN: value } : {}
+    case 'dual_dummy':
+      return { ANTHROPIC_API_KEY: 'dummy', ANTHROPIC_AUTH_TOKEN: 'dummy' }
+  }
+}
+
+function inferAuthStrategyFromEnv(env: Record<string, string>): ProviderAuthStrategy | null {
+  if (env.ANTHROPIC_API_KEY === 'dummy' && env.ANTHROPIC_AUTH_TOKEN === 'dummy') return 'dual_dummy'
+  if (env.ANTHROPIC_API_KEY === '' && env.ANTHROPIC_AUTH_TOKEN) return 'auth_token_empty_api_key'
+  if (env.ANTHROPIC_API_KEY && env.ANTHROPIC_AUTH_TOKEN && env.ANTHROPIC_API_KEY === env.ANTHROPIC_AUTH_TOKEN) return 'dual_same_token'
+  if (env.ANTHROPIC_AUTH_TOKEN) return 'auth_token'
+  if (env.ANTHROPIC_API_KEY) return 'api_key'
+  return null
 }
 
 function parseAutoCompactWindowInput(value: string): number | undefined {
@@ -485,12 +539,38 @@ function updateSettingsJsonModels(raw: string, models: ModelMapping): string {
   }
 }
 
+function updateSettingsJsonProviderConnection(
+  raw: string,
+  apiFormat: ApiFormat,
+  authStrategy: ProviderAuthStrategy,
+  apiKey: string,
+  preset: ProviderPreset,
+  baseUrl: string,
+): string {
+  try {
+    const parsed = JSON.parse(raw || '{}') as { env?: Record<string, unknown> }
+    const existingEnv = parsed.env && typeof parsed.env === 'object' && !Array.isArray(parsed.env)
+      ? parsed.env
+      : {}
+    const env = { ...existingEnv }
+    delete env.ANTHROPIC_API_KEY
+    delete env.ANTHROPIC_AUTH_TOKEN
+    env.ANTHROPIC_BASE_URL = apiFormat !== 'anthropic' ? 'http://127.0.0.1:3456/proxy' : baseUrl
+    Object.assign(env, buildSettingsJsonAuthEnv(apiFormat, authStrategy, apiKey, preset))
+    parsed.env = env
+    return JSON.stringify(parsed, null, 2)
+  } catch {
+    return raw
+  }
+}
+
 function buildFallbackPreset(provider?: SavedProvider): ProviderPreset {
   return {
     id: provider?.presetId ?? 'custom',
     name: provider?.name ?? 'Custom',
     baseUrl: provider?.baseUrl ?? '',
     apiFormat: provider?.apiFormat ?? 'anthropic',
+    authStrategy: provider?.authStrategy,
     defaultModels: provider?.models ?? { main: '', haiku: '', sonnet: '', opus: '' },
     modelContextWindows: provider?.modelContextWindows,
     defaultEnv: provider?.autoCompactWindow !== undefined
@@ -537,6 +617,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const [name, setName] = useState(provider?.name ?? initialPreset.name)
   const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? initialPreset.baseUrl)
   const [apiFormat, setApiFormat] = useState<ApiFormat>(provider?.apiFormat ?? initialPreset.apiFormat ?? 'anthropic')
+  const [authStrategy, setAuthStrategy] = useState<ProviderAuthStrategy>(provider?.authStrategy ?? getPresetAuthStrategy(initialPreset))
   const [apiKey, setApiKey] = useState(provider?.apiKey ?? '')
   const [showApiKey, setShowApiKey] = useState(false)
   const [notes, setNotes] = useState(provider?.notes ?? '')
@@ -576,15 +657,13 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           skipWebFetchPreflight: settings.skipWebFetchPreflight ?? true,
           env: {
             ...cleanedEnv,
-            ...(selectedPreset.defaultEnv ?? {}),
+            ...omitAuthEnv(selectedPreset.defaultEnv),
             ...(autoCompactWindowEnv ? { [AUTO_COMPACT_WINDOW_ENV_KEY]: autoCompactWindowEnv } : {}),
             ...(Object.keys(modelContextWindows).length > 0
               ? { [MODEL_CONTEXT_WINDOWS_ENV_KEY]: JSON.stringify(modelContextWindows) }
               : {}),
             ANTHROPIC_BASE_URL: needsProxy ? 'http://127.0.0.1:3456/proxy' : baseUrl,
-            ANTHROPIC_AUTH_TOKEN: needsProxy
-              ? 'proxy-managed'
-              : (apiKey || selectedPreset.defaultEnv?.ANTHROPIC_AUTH_TOKEN || (selectedPreset.needsApiKey ? '(your API key)' : '')),
+            ...buildSettingsJsonAuthEnv(apiFormat, authStrategy, apiKey, selectedPreset),
             ANTHROPIC_MODEL: models.main,
             ANTHROPIC_DEFAULT_HAIKU_MODEL: models.haiku,
             ANTHROPIC_DEFAULT_SONNET_MODEL: models.sonnet,
@@ -604,6 +683,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     setName(preset.name)
     setBaseUrl(preset.baseUrl)
     setApiFormat(preset.apiFormat ?? 'anthropic')
+    setAuthStrategy(getPresetAuthStrategy(preset))
     setModels({ ...preset.defaultModels })
     setModelContextInputs(getModelContextInputs(preset.defaultModels, preset))
     setAutoCompactWindow(getPresetAutoCompactWindow(preset))
@@ -639,6 +719,39 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
     },
   ]
   const selectedApiFormatLabel = apiFormatItems.find((item) => item.value === apiFormat)?.label ?? t('settings.providers.apiFormatAnthropic')
+  const authStrategyItems = [
+    {
+      value: 'auth_token' as const,
+      label: t('settings.providers.authStrategyAuthToken'),
+      description: t('settings.providers.authStrategyAuthTokenDesc'),
+      icon: <span className="material-symbols-outlined text-[17px]">key</span>,
+    },
+    {
+      value: 'auth_token_empty_api_key' as const,
+      label: t('settings.providers.authStrategyAuthTokenEmptyApiKey'),
+      description: t('settings.providers.authStrategyAuthTokenEmptyApiKeyDesc'),
+      icon: <span className="material-symbols-outlined text-[17px]">key_off</span>,
+    },
+    {
+      value: 'api_key' as const,
+      label: t('settings.providers.authStrategyApiKey'),
+      description: t('settings.providers.authStrategyApiKeyDesc'),
+      icon: <span className="material-symbols-outlined text-[17px]">vpn_key</span>,
+    },
+    {
+      value: 'dual_same_token' as const,
+      label: t('settings.providers.authStrategyDualSameToken'),
+      description: t('settings.providers.authStrategyDualSameTokenDesc'),
+      icon: <span className="material-symbols-outlined text-[17px]">sync_alt</span>,
+    },
+    {
+      value: 'dual_dummy' as const,
+      label: t('settings.providers.authStrategyDualDummy'),
+      description: t('settings.providers.authStrategyDualDummyDesc'),
+      icon: <span className="material-symbols-outlined text-[17px]">construction</span>,
+    },
+  ] satisfies Array<{ value: ProviderAuthStrategy; label: string; description: string; icon: ReactNode }>
+  const selectedAuthStrategyLabel = authStrategyItems.find((item) => item.value === authStrategy)?.label ?? t('settings.providers.authStrategyAuthToken')
   const configuredContextWindows = buildModelContextWindows(models, modelContextInputs)
   const configuredContextSummary = Object.entries(configuredContextWindows)
     .filter(([model], index, entries) => entries.findIndex(([candidate]) => candidate === model) === index)
@@ -656,6 +769,22 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
   const handleAutoCompactWindowChange = (value: string) => {
     setAutoCompactWindow(value)
     setSettingsJson((current) => updateSettingsJsonAutoCompactWindow(current, value))
+  }
+  const handleBaseUrlChange = (value: string) => {
+    setBaseUrl(value)
+    setSettingsJson((current) => updateSettingsJsonProviderConnection(current, apiFormat, authStrategy, apiKey, selectedPreset, value))
+  }
+  const handleApiKeyChange = (value: string) => {
+    setApiKey(value)
+    setSettingsJson((current) => updateSettingsJsonProviderConnection(current, apiFormat, authStrategy, value, selectedPreset, baseUrl))
+  }
+  const handleApiFormatChange = (value: ApiFormat) => {
+    setApiFormat(value)
+    setSettingsJson((current) => updateSettingsJsonProviderConnection(current, value, authStrategy, apiKey, selectedPreset, baseUrl))
+  }
+  const handleAuthStrategyChange = (value: ProviderAuthStrategy) => {
+    setAuthStrategy(value)
+    setSettingsJson((current) => updateSettingsJsonProviderConnection(current, apiFormat, value, apiKey, selectedPreset, baseUrl))
   }
   const handleModelChange = (slot: ModelSlot, value: string) => {
     const nextModels = { ...models, [slot]: value }
@@ -715,6 +844,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           presetId: selectedPreset.id,
           name: name.trim(),
           apiKey: apiKey.trim(),
+          authStrategy,
           baseUrl: baseUrl.trim(),
           apiFormat,
           models,
@@ -726,6 +856,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
         const input: UpdateProviderInput = {
           name: name.trim(),
           baseUrl: baseUrl.trim(),
+          authStrategy,
           apiFormat,
           models,
           autoCompactWindow: parsedAutoCompactWindow ?? null,
@@ -757,6 +888,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           baseUrl: baseUrl.trim(),
           modelId: models.main.trim(),
           apiFormat,
+          authStrategy,
         })
       } else {
         if (requiresApiKey && !apiKey.trim()) return
@@ -764,6 +896,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           baseUrl: baseUrl.trim(),
           apiKey: apiKey.trim() || selectedPreset.defaultEnv?.ANTHROPIC_AUTH_TOKEN || 'local',
           modelId: models.main.trim(),
+          authStrategy,
           apiFormat,
         })
       }
@@ -812,7 +945,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
 
         <Input label={t('settings.providers.notes')} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={t('settings.providers.notesPlaceholder')} />
 
-        <Input label={t('settings.providers.baseUrl')} required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={t('settings.providers.baseUrlPlaceholder')} />
+        <Input label={t('settings.providers.baseUrl')} required value={baseUrl} onChange={(e) => handleBaseUrlChange(e.target.value)} placeholder={t('settings.providers.baseUrlPlaceholder')} />
 
         {/* API Format */}
         {(isCustom || mode === 'edit') ? (
@@ -821,7 +954,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
             <Dropdown<ApiFormat>
               items={apiFormatItems}
               value={apiFormat}
-              onChange={setApiFormat}
+              onChange={handleApiFormatChange}
               width="100%"
               className="block w-full"
               trigger={
@@ -847,6 +980,28 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
           </div>
         ) : null}
 
+        {apiFormat === 'anthropic' && (
+          <div>
+            <label className="text-sm font-medium text-[var(--color-text-primary)] mb-1 block">{t('settings.providers.authStrategy')}</label>
+            <Dropdown<ProviderAuthStrategy>
+              items={authStrategyItems}
+              value={authStrategy}
+              onChange={handleAuthStrategyChange}
+              width="100%"
+              className="block w-full"
+              trigger={
+                <button
+                  type="button"
+                  className="flex min-h-10 w-full items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-left text-sm text-[var(--color-text-primary)] outline-none transition-colors hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-container-low)] focus-visible:border-[var(--color-border-focus)] focus-visible:shadow-[var(--shadow-focus-ring)]"
+                >
+                  <span className="min-w-0 flex-1 truncate">{selectedAuthStrategyLabel}</span>
+                  <span className="material-symbols-outlined flex-shrink-0 text-[18px] text-[var(--color-text-secondary)]">expand_more</span>
+                </button>
+              }
+            />
+          </div>
+        )}
+
         <div className="flex flex-col gap-1">
           <label htmlFor="provider-api-key" className="text-sm font-medium text-[var(--color-text-primary)]">
             {t('settings.providers.apiKey')}
@@ -857,7 +1012,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
               id="provider-api-key"
               type={showApiKey ? 'text' : 'password'}
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
               placeholder="sk-..."
               className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 pr-10 text-sm text-[var(--color-text-primary)] outline-none transition-colors duration-150 placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-focus)] focus:shadow-[var(--shadow-focus-ring)]"
             />
@@ -1059,6 +1214,10 @@ function ProviderFormModal({ open, onClose, mode, provider, presets }: ProviderF
                   const nextApiKey = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY
                   if (nextApiKey && nextApiKey !== '(your API key)' && nextApiKey !== API_KEY_JSON_PLACEHOLDER) {
                     setApiKey(nextApiKey)
+                  }
+                  const nextAuthStrategy = inferAuthStrategyFromEnv(env)
+                  if (nextAuthStrategy) {
+                    setAuthStrategy(nextAuthStrategy)
                   }
                   if (env[AUTO_COMPACT_WINDOW_ENV_KEY] !== undefined) {
                     setAutoCompactWindow(String(env[AUTO_COMPACT_WINDOW_ENV_KEY]))
