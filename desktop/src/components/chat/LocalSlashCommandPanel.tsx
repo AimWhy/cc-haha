@@ -297,7 +297,14 @@ function UsageTab({
             {models.map((model) => (
               <div key={model.model} className="border-t border-[var(--color-inspector-border)] first:border-t-0">
                 <div className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-4 border-b border-[var(--color-inspector-border)] px-4 py-3">
-                  <div className="min-w-0 truncate text-[13px] font-semibold text-[var(--color-inspector-text)]">{model.displayName || model.model}</div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13px] font-semibold text-[var(--color-inspector-text)]">{model.displayName || model.model}</div>
+                    {(model.contextWindow > 0 || context?.rawMaxTokens) && (
+                      <div className="mt-1 truncate text-[11px] text-[var(--color-inspector-muted)]">
+                        {t('slash.inspector.status.contextWindow')}: {formatNumber(model.contextWindow || context?.rawMaxTokens)}
+                      </div>
+                    )}
+                  </div>
                   <div className="text-right text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--color-inspector-heading)]">{t('slash.inspector.usage.tokens')}</div>
                 </div>
                 <div className="grid grid-cols-[160px_minmax(0,1fr)_120px] items-center gap-4 border-b border-[var(--color-inspector-border)] px-4 py-3 last:border-b-0">
@@ -518,7 +525,9 @@ function StatusTab({
 }) {
   const mcpServers = Array.isArray(data.status.mcpServers) ? data.status.mcpServers : []
   const tools = Array.isArray(data.status.tools) ? data.status.tools : []
-  const model = data.status.model ?? data.context?.model ?? data.usage?.models?.[0]?.displayName ?? data.usage?.models?.[0]?.model ?? t('slash.inspector.status.unknown')
+  const context = data.context ?? data.contextEstimate
+  const model = data.status.model ?? context?.model ?? data.usage?.models?.[0]?.displayName ?? data.usage?.models?.[0]?.model ?? t('slash.inspector.status.unknown')
+  const contextWindow = context?.rawMaxTokens ?? data.usage?.models?.find((entry) => entry.contextWindow > 0)?.contextWindow
   const slashCommandCount = (data.status.slashCommandCount ?? 0) > 0
     ? data.status.slashCommandCount
     : commands?.length ?? 0
@@ -536,7 +545,11 @@ function StatusTab({
             </span>
           )}
         />
-        <MetricCard label={t('slash.inspector.status.activeModel')} value={model} />
+        <MetricCard
+          label={t('slash.inspector.status.activeModel')}
+          value={model}
+          detail={contextWindow ? `${t('slash.inspector.status.contextWindow')}: ${formatNumber(contextWindow)}` : undefined}
+        />
         <MetricCard
           label={t('slash.inspector.status.mcpConnections')}
           value={(
@@ -744,7 +757,7 @@ function SessionInspectorPanel({
       ) : data === null ? (
         <LoadingState label={t('slash.inspector.loading')} />
       ) : selectedTab === 'usage' ? (
-        <UsageTab usage={data.usage} context={data.context} error={data.errors?.usage} t={t} />
+        <UsageTab usage={data.usage} context={data.context ?? data.contextEstimate} error={data.errors?.usage} t={t} />
       ) : selectedTab === 'context' ? (
         <ContextTab
           context={data.context ?? data.contextEstimate}

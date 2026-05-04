@@ -20,6 +20,7 @@ import { ProjectContextChip } from '../shared/ProjectContextChip'
 import { DirectoryPicker } from '../shared/DirectoryPicker'
 import { FileSearchMenu, type FileSearchMenuHandle } from './FileSearchMenu'
 import { LocalSlashCommandPanel, type LocalSlashCommandName } from './LocalSlashCommandPanel'
+import { ContextUsageIndicator } from './ContextUsageIndicator'
 import {
   FALLBACK_SLASH_COMMANDS,
   findSlashTrigger,
@@ -89,6 +90,13 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const chatState = sessionState?.chatState ?? 'idle'
   const slashCommands = sessionState?.slashCommands ?? []
   const composerPrefill = sessionState?.composerPrefill ?? null
+  const messageCount = sessionState?.messages?.length ?? 0
+  const runtimeSelection = useSessionRuntimeStore((state) =>
+    activeTabId ? state.selections[activeTabId] : undefined,
+  )
+  const runtimeSelectionKey = runtimeSelection
+    ? `${runtimeSelection.providerId ?? 'official'}:${runtimeSelection.modelId}`
+    : undefined
   const activeSession = useSessionStore((state) => activeTabId ? state.sessions.find((session) => session.id === activeTabId) ?? null : null)
   const memberInfo = useTeamStore((s) => activeTabId ? s.getMemberBySessionId(activeTabId) : null)
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null)
@@ -812,6 +820,15 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
             </div>
 
             <div className="flex min-w-0 items-center gap-2">
+              {!isMemberSession && activeTabId && (
+                <ContextUsageIndicator
+                  sessionId={activeTabId}
+                  chatState={chatState}
+                  messageCount={messageCount}
+                  runtimeSelectionKey={runtimeSelectionKey}
+                  compact={compact}
+                />
+              )}
               {!isMemberSession && activeTabId && (
                 <ModelSelector runtimeKey={activeTabId} disabled={isActive} compact={compact} />
               )}

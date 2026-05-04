@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 import { skillsApi } from '../api/skills'
@@ -78,10 +78,12 @@ import { UserMessage } from '../components/chat/UserMessage'
 import { useChatStore } from '../stores/chatStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useSessionStore } from '../stores/sessionStore'
+import { useSessionRuntimeStore } from '../stores/sessionRuntimeStore'
 import { useTabStore } from '../stores/tabStore'
 
 beforeEach(() => {
   useSettingsStore.setState({ locale: 'en' })
+  useSessionRuntimeStore.setState({ selections: {} })
 })
 
 /**
@@ -599,6 +601,337 @@ describe('Content-only pages render without errors', () => {
     useTabStore.setState({ tabs: [], activeTabId: null })
     useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
     useChatStore.setState({ sessions: {} })
+  })
+
+  it('ActiveSession shows live context usage near the composer', async () => {
+    const SESSION_ID = 'context-indicator-session'
+    vi.mocked(sessionsApi.getInspection).mockResolvedValueOnce({
+      active: true,
+      status: {
+        sessionId: SESSION_ID,
+        workDir: '/workspace/project',
+        cwd: '/workspace/project',
+        permissionMode: 'bypassPermissions',
+        model: 'kimi-k2.6',
+      },
+      context: {
+        categories: [
+          { name: 'Messages', tokens: 42_000, color: '#2D628F' },
+          { name: 'Tools', tokens: 8_000, color: '#8F482F' },
+          { name: 'Free space', tokens: 70_000, color: '#9B928C' },
+        ],
+        totalTokens: 50_000,
+        maxTokens: 120_000,
+        rawMaxTokens: 120_000,
+        percentage: 42,
+        gridRows: [],
+        model: 'kimi-k2.6',
+        memoryFiles: [],
+        mcpTools: [],
+        agents: [],
+      },
+    })
+
+    useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'Test',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 1,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
+    useChatStore.setState({
+      sessions: {
+        [SESSION_ID]: {
+          messages: [{ id: 'm-1', type: 'assistant_text', content: 'done', timestamp: Date.now() }],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 50_000, output_tokens: 1_000 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    expect(await screen.findByLabelText('Context usage 42%')).toBeInTheDocument()
+    expect(screen.getByText('120,000')).toBeInTheDocument()
+    expect(vi.mocked(sessionsApi.getInspection)).toHaveBeenCalledWith(SESSION_ID, {
+      includeContext: true,
+      timeout: 45_000,
+    })
+
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+    useChatStore.setState({ sessions: {} })
+  })
+
+  it('ActiveSession keeps a stable context placeholder while context usage loads', async () => {
+    const SESSION_ID = 'context-loading-session'
+    vi.mocked(sessionsApi.getInspection).mockImplementationOnce(() => new Promise(() => {}))
+
+    useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'Test',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 0,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
+    useChatStore.setState({
+      sessions: {
+        [SESSION_ID]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    const indicator = await screen.findByLabelText('Context usage loading')
+    expect(indicator).toHaveTextContent('--')
+    expect(indicator).toHaveClass('h-8')
+
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+    useChatStore.setState({ sessions: {} })
+  })
+
+  it('ActiveSession shows context estimate during compaction or reconnect fallback', async () => {
+    const SESSION_ID = 'context-estimate-session'
+    vi.mocked(sessionsApi.getInspection).mockResolvedValueOnce({
+      active: false,
+      status: {
+        sessionId: SESSION_ID,
+        workDir: '/workspace/project',
+        cwd: '/workspace/project',
+        permissionMode: 'bypassPermissions',
+        model: 'deepseek-v4-pro',
+      },
+      contextEstimate: {
+        categories: [
+          { name: 'Messages', tokens: 72_000, color: '#2D628F' },
+          { name: 'Autocompact buffer', tokens: 24_000, color: '#9B928C', isDeferred: true },
+        ],
+        totalTokens: 72_000,
+        maxTokens: 1_000_000,
+        rawMaxTokens: 1_000_000,
+        percentage: 7,
+        gridRows: [],
+        model: 'deepseek-v4-pro',
+        memoryFiles: [],
+        mcpTools: [],
+        agents: [],
+      },
+      errors: {
+        context: 'CLI session is not running',
+      },
+    })
+
+    useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'Test',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 4,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
+    useChatStore.setState({
+      sessions: {
+        [SESSION_ID]: {
+          messages: [
+            { id: 'm-1', type: 'system', content: 'Context compacted', timestamp: Date.now() },
+            { id: 'm-2', type: 'assistant_text', content: 'ready', timestamp: Date.now() },
+          ],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 72_000, output_tokens: 2_000 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    expect(await screen.findByLabelText('Context usage 7%')).toBeInTheDocument()
+    expect(screen.getByText('deepseek-v4-pro')).toBeInTheDocument()
+    expect(screen.getByText('1,000,000')).toBeInTheDocument()
+    expect(screen.getByText('Estimate')).toBeInTheDocument()
+    expect(screen.queryByText('Autocompact buffer')).not.toBeInTheDocument()
+
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+    useChatStore.setState({ sessions: {} })
+  })
+
+  it('ActiveSession refreshes context usage when the selected runtime model changes', async () => {
+    const SESSION_ID = 'context-runtime-refresh-session'
+    vi.mocked(sessionsApi.getInspection)
+      .mockResolvedValueOnce({
+        active: true,
+        status: {
+          sessionId: SESSION_ID,
+          workDir: '/workspace/project',
+          cwd: '/workspace/project',
+          permissionMode: 'bypassPermissions',
+          model: 'kimi-k2.6',
+        },
+        context: {
+          categories: [{ name: 'Messages', tokens: 26_000, color: '#2D628F' }],
+          totalTokens: 26_000,
+          maxTokens: 262_144,
+          rawMaxTokens: 262_144,
+          percentage: 10,
+          gridRows: [],
+          model: 'kimi-k2.6',
+          memoryFiles: [],
+          mcpTools: [],
+          agents: [],
+        },
+      })
+      .mockResolvedValueOnce({
+        active: true,
+        status: {
+          sessionId: SESSION_ID,
+          workDir: '/workspace/project',
+          cwd: '/workspace/project',
+          permissionMode: 'bypassPermissions',
+          model: 'glm-4.5-air',
+        },
+        context: {
+          categories: [{ name: 'Messages', tokens: 26_000, color: '#2D628F' }],
+          totalTokens: 26_000,
+          maxTokens: 128_000,
+          rawMaxTokens: 128_000,
+          percentage: 20,
+          gridRows: [],
+          model: 'glm-4.5-air',
+          memoryFiles: [],
+          mcpTools: [],
+          agents: [],
+        },
+      })
+
+    useTabStore.setState({ tabs: [{ sessionId: SESSION_ID, title: 'Test', type: 'session' as const, status: 'idle' }], activeTabId: SESSION_ID })
+    useSessionStore.setState({
+      sessions: [{
+        id: SESSION_ID,
+        title: 'Test',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 1,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: SESSION_ID,
+      isLoading: false,
+      error: null,
+    })
+    useChatStore.setState({
+      sessions: {
+        [SESSION_ID]: {
+          messages: [{ id: 'm-1', type: 'assistant_text', content: 'done', timestamp: Date.now() }],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 26_000, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    const inspectionCallsBeforeRender = vi.mocked(sessionsApi.getInspection).mock.calls.length
+    render(<ActiveSession />)
+
+    expect(await screen.findByLabelText('Context usage 10%')).toBeInTheDocument()
+
+    useSessionRuntimeStore.getState().setSelection(SESSION_ID, {
+      providerId: 'zhipu-provider',
+      modelId: 'glm-4.5-air',
+    })
+
+    expect(await screen.findByLabelText('Context usage 20%')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(vi.mocked(sessionsApi.getInspection).mock.calls.length - inspectionCallsBeforeRender)
+        .toBeGreaterThanOrEqual(2)
+    })
+
+    useTabStore.setState({ tabs: [], activeTabId: null })
+    useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+    useChatStore.setState({ sessions: {} })
+    useSessionRuntimeStore.setState({ selections: {} })
   })
 
   it('AgentTeams renders team strip and members', () => {
