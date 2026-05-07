@@ -679,9 +679,9 @@ export const en = {
   'settings.general.webSearchSave': 'Save',
 
   // ─── Empty Session ──────────────────────────────────────
-  'empty.title': 'What should we build?',
+  'empty.title': 'New session',
   'empty.subtitle': 'Start a fresh coding session. Claude is ready to help you build, debug, and architect your project.',
-  'empty.placeholder': 'Ask Claude anything. Type @ to mention files or tools',
+  'empty.placeholder': 'Ask anything...',
   'empty.addFiles': 'Add files or photos',
   'empty.slashCommands': 'Slash commands',
   'empty.failedToCreate': 'Failed to create session',

@@ -159,7 +159,7 @@ describe('Content-only pages render without errors', () => {
     expect(screen.queryByText('/internal-only')).not.toBeInTheDocument()
   })
 
-  it('EmptySession renders the launch composer', async () => {
+  it('EmptySession renders mascot and composer', async () => {
     let container!: HTMLElement
     await act(async () => {
       container = render(<EmptySession />).container
@@ -167,8 +167,8 @@ describe('Content-only pages render without errors', () => {
       await Promise.resolve()
     })
     expect(container.querySelector('textarea')).toBeInTheDocument()
-    expect(container.innerHTML).toContain('What should we build?')
-    expect(container.innerHTML).toContain('Ask Claude anything')
+    expect(container.innerHTML).toContain('New session')
+    expect(container.innerHTML).toContain('Ask anything')
   })
 
   it('EmptySession shows draft context usage before a session is created', async () => {
@@ -235,11 +235,11 @@ describe('Content-only pages render without errors', () => {
     })
     const { container } = render(<ActiveSession />)
     // With empty messages, the hero is shown
-    expect(container.innerHTML).toContain('What should we build?')
+    expect(container.innerHTML).toContain('New session')
     // ChatInput has a textarea
     const textarea = container.querySelector('textarea')
     expect(textarea).toBeInTheDocument()
-    expect(textarea).toHaveAttribute('placeholder', 'Ask Claude anything. Type @ to mention files or tools')
+    expect(textarea).toHaveAttribute('placeholder', 'Ask anything...')
     expect(textarea).toHaveAttribute('rows', '2')
     expect(container.innerHTML).not.toContain('Preview')
     // Cleanup

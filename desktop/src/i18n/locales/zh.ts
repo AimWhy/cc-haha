@@ -681,9 +681,9 @@ export const zh: Record<TranslationKey, string> = {
   'settings.general.webSearchSave': '保存',
 
   // ─── Empty Session ──────────────────────────────────────
-  'empty.title': '我们该构建什么？',
+  'empty.title': '新建会话',
   'empty.subtitle': '开始一个新的编码会话。Claude 已准备好帮你构建、调试和架构你的项目。',
-  'empty.placeholder': '向 Claude 询问任何事。输入 @ 使用文件或工具',
+  'empty.placeholder': '随便问点什么...',
   'empty.addFiles': '添加文件或图片',
   'empty.slashCommands': '斜杠命令',
   'empty.failedToCreate': '创建会话失败',

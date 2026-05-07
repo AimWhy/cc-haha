@@ -260,7 +260,7 @@ export function RepositoryLaunchControls({
 
   return (
     <div ref={rootRef} className="flex min-w-0 flex-col gap-2">
-      <div className="flex min-h-[58px] min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-b-[28px] bg-[var(--color-surface-container)] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+      <div className="flex min-h-[58px] min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-b-xl bg-[var(--color-surface-container)] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
         <DirectoryPicker value={workDir} onChange={onWorkDirChange} variant="workbar" />
 
         {loading && workDir && (

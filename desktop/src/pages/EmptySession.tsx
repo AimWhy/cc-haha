@@ -533,17 +533,25 @@ export function EmptySession() {
 
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-surface)]">
-      <div className="flex min-h-full flex-1 items-center justify-center px-8 py-12">
-        <div className="flex w-full max-w-[1120px] -translate-y-6 flex-col items-center gap-12">
-          <h1 className="text-center text-[44px] font-semibold leading-tight text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-headline)' }}>
+      <div className="flex flex-1 flex-col items-center justify-center p-8 pb-32">
+        <div className="flex max-w-md flex-col items-center text-center">
+          <img src="/app-icon.png" alt="Claude Code Haha" className="mb-6 h-24 w-24" />
+          <h1 className="mb-2 text-3xl font-extrabold tracking-tight text-[var(--color-text-primary)]" style={{ fontFamily: 'var(--font-headline)' }}>
             {t('empty.title')}
           </h1>
-          <div className="flex w-full max-w-[1040px] flex-col">
-            <div
-              className="relative flex min-h-[194px] flex-col gap-4 rounded-t-[28px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-6 pb-4 pt-5 shadow-[0_22px_70px_rgba(15,23,42,0.10),0_5px_18px_rgba(15,23,42,0.06)]"
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={handleDrop}
-            >
+          <p className="mx-auto max-w-xs text-[var(--color-text-secondary)]" style={{ fontFamily: 'var(--font-body)' }}>
+            {t('empty.subtitle')}
+          </p>
+        </div>
+      </div>
+
+      <div className="absolute bottom-4 left-0 right-0 flex justify-center px-8">
+        <div className="flex w-full max-w-3xl flex-col">
+          <div
+            className="glass-panel relative flex flex-col gap-3 rounded-t-xl rounded-b-none p-4"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={handleDrop}
+          >
             {fileSearchOpen && (
               <FileSearchMenu
                 ref={fileSearchRef}
@@ -639,22 +647,22 @@ export function EmptySession() {
                 onChange={(event) => handleInputChange(event.target.value, event.target.selectionStart ?? event.target.value.length)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
-                className="min-h-[92px] flex-1 resize-none border-none bg-transparent py-4 text-[22px] leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+                className="flex-1 resize-none border-none bg-transparent py-2 leading-relaxed text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
                 style={{ fontFamily: 'var(--font-body)' }}
                 placeholder={t('empty.placeholder')}
-                rows={3}
+                rows={2}
               />
             </div>
 
-            <div className="flex items-center justify-between border-t border-[var(--color-border-separator)] pt-4">
+            <div className="flex items-center justify-between border-t border-[var(--color-border-separator)] pt-3">
               <div className="flex items-center gap-2">
                 <div ref={plusMenuRef} className="relative">
                   <button
                     onClick={() => setPlusMenuOpen((prev) => !prev)}
                     aria-label="Open composer tools"
-                    className="rounded-full p-2 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
+                    className="rounded-lg p-1.5 text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
                   >
-                    <span className="material-symbols-outlined text-[28px]">add</span>
+                    <span className="material-symbols-outlined text-[18px]">add</span>
                   </button>
 
                   {plusMenuOpen && (
@@ -693,29 +701,27 @@ export function EmptySession() {
                 />
                 <ModelSelector runtimeKey={DRAFT_RUNTIME_SELECTION_KEY} disabled={isSubmitting} />
                 <button
-                  aria-label={t('common.run')}
                   onClick={handleSubmit}
                   disabled={!canSubmit}
-                  className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-text-secondary)] text-[var(--color-surface-container-lowest)] shadow-[0_10px_24px_rgba(15,23,42,0.18)] transition-all hover:bg-[var(--color-text-primary)] disabled:bg-[var(--color-text-tertiary)] disabled:opacity-45"
+                  className="flex w-[112px] items-center justify-center gap-1 rounded-lg bg-[image:var(--gradient-btn-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--color-btn-primary-fg)] shadow-[var(--shadow-button-primary)] transition-all hover:brightness-105 disabled:opacity-30"
                 >
-                  <span className="sr-only">{t('common.run')}</span>
-                  <span className="material-symbols-outlined text-[28px]">arrow_upward</span>
+                  {t('common.run')}
+                  <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
                 </button>
               </div>
             </div>
-            </div>
-
-            <RepositoryLaunchControls
-              workDir={workDir}
-              onWorkDirChange={handleWorkDirChange}
-              branch={selectedBranch}
-              onBranchChange={setSelectedBranch}
-              useWorktree={useWorktree}
-              onUseWorktreeChange={setUseWorktree}
-              onLaunchReadyChange={setRepositoryLaunchReady}
-              disabled={isSubmitting}
-            />
           </div>
+
+          <RepositoryLaunchControls
+            workDir={workDir}
+            onWorkDirChange={handleWorkDirChange}
+            branch={selectedBranch}
+            onBranchChange={setSelectedBranch}
+            useWorktree={useWorktree}
+            onUseWorktreeChange={setUseWorktree}
+            onLaunchReadyChange={setRepositoryLaunchReady}
+            disabled={isSubmitting}
+          />
         </div>
       </div>
 
