@@ -4,6 +4,8 @@ import '@testing-library/jest-dom'
 
 const mocks = vi.hoisted(() => ({
   getGitInfo: vi.fn(),
+  getRepositoryContext: vi.fn(),
+  getRecentProjects: vi.fn(),
   search: vi.fn(),
   browse: vi.fn(),
   wsSend: vi.fn(),
@@ -12,6 +14,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../api/sessions', () => ({
   sessionsApi: {
     getGitInfo: mocks.getGitInfo,
+    getRepositoryContext: mocks.getRepositoryContext,
+    getRecentProjects: mocks.getRecentProjects,
   },
 }))
 
@@ -46,6 +50,40 @@ import { useSessionStore } from '../../stores/sessionStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
+
+function okRepositoryContext() {
+  return {
+    state: 'ok' as const,
+    workDir: '/repo',
+    repoRoot: '/repo',
+    repoName: 'repo',
+    currentBranch: 'main',
+    defaultBranch: 'main',
+    dirty: false,
+    branches: [
+      {
+        name: 'main',
+        current: true,
+        local: true,
+        remote: false,
+        checkedOut: true,
+        worktreePath: '/repo',
+      },
+      {
+        name: 'feature/a',
+        current: false,
+        local: true,
+        remote: false,
+        checkedOut: false,
+      },
+    ],
+    worktrees: [{
+      path: '/repo',
+      branch: 'main',
+      current: true,
+    }],
+  }
+}
 
 describe('ChatInput file mentions', () => {
   const sessionId = 'session-file-mention'
@@ -102,6 +140,52 @@ describe('ChatInput file mentions', () => {
       },
     })
     mocks.getGitInfo.mockResolvedValue({ branch: 'main', repoName: 'repo', workDir: '/repo', changedFiles: 0 })
+    mocks.getRepositoryContext.mockResolvedValue(okRepositoryContext())
+    mocks.getRecentProjects.mockResolvedValue({ projects: [] })
+  })
+
+  it('shows branch and worktree launch controls for an empty active Git session', async () => {
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'Project',
+        createdAt: '2026-05-01T00:00:00.000Z',
+        modifiedAt: '2026-05-01T00:00:00.000Z',
+        messageCount: 0,
+        projectPath: '/repo',
+        workDir: '/repo',
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ChatInput variant="hero" />)
+
+    expect(await screen.findByRole('button', { name: /Select branch: main/ })).toBeInTheDocument()
+    expect(screen.getByText('Current worktree')).toBeInTheDocument()
+    expect(screen.queryByText('Select a project...')).not.toBeInTheDocument()
   })
 
   it('turns a selected @ file into a chip without corrupting the typed path', async () => {
