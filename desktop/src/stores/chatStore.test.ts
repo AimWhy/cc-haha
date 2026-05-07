@@ -122,10 +122,38 @@ vi.mock('./cliTaskStore', () => ({
   },
 }))
 
-import { mapHistoryMessagesToUiMessages, reconstructAgentNotifications, useChatStore } from './chatStore'
+import { sessionsApi } from '../api/sessions'
+import {
+  mapHistoryMessagesToUiMessages,
+  reconstructAgentNotifications,
+  type PerSessionState,
+  useChatStore,
+} from './chatStore'
 
 const TEST_SESSION_ID = 'test-session-1'
 const initialState = useChatStore.getState()
+
+function makeSession(overrides: Partial<PerSessionState> = {}): PerSessionState {
+  return {
+    messages: [],
+    chatState: 'streaming',
+    connectionState: 'connected',
+    streamingText: '',
+    streamingToolInput: '',
+    activeToolUseId: null,
+    activeToolName: null,
+    activeThinkingId: null,
+    pendingPermission: null,
+    pendingComputerUsePermission: null,
+    tokenUsage: { input_tokens: 0, output_tokens: 0 },
+    elapsedSeconds: 0,
+    statusVerb: '',
+    slashCommands: [],
+    agentTaskNotifications: {},
+    elapsedTimer: null,
+    ...overrides,
+  }
+}
 
 describe('chatStore history mapping', () => {
   beforeEach(() => {
@@ -527,6 +555,124 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('hydrates TodoWrite history into the currently tracked task store only', async () => {
+    const todos = [{ content: 'Session task', status: 'in_progress' }]
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-todo',
+          type: 'assistant',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: [
+            { type: 'tool_use', name: 'TodoWrite', id: 'todo-1', input: { todos } },
+          ],
+        },
+      ],
+    })
+    cliTaskStoreSnapshot.sessionId = TEST_SESSION_ID
+    cliTaskStoreSnapshot.tasks = []
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ messages: [] }),
+      },
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(setTasksFromTodosMock).toHaveBeenCalledWith(todos, TEST_SESSION_ID)
+  })
+
+  it('marks history task completion dismissed when the user already continued', async () => {
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-task',
+          type: 'assistant',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: [
+            { type: 'tool_use', name: 'TaskCreate', id: 'task-1', input: { subject: 'Done' } },
+          ],
+        },
+        {
+          id: 'user-next',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:01.000Z',
+          content: '继续下一步',
+        },
+      ],
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ messages: [] }),
+      },
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(setTasksFromTodosMock).toHaveBeenCalledWith([], TEST_SESSION_ID)
+    expect(markCompletedAndDismissedMock).toHaveBeenCalledWith(TEST_SESSION_ID)
+  })
+
+  it('reloads history task state for the requested session', async () => {
+    const todos = [{ content: 'Reloaded task', status: 'pending' }]
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-todo',
+          type: 'assistant',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: [
+            { type: 'tool_use', name: 'TodoWrite', id: 'todo-1', input: { todos } },
+          ],
+        },
+      ],
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ messages: [{ id: 'old', type: 'assistant_text', content: 'old', timestamp: 1 }] }),
+      },
+    })
+
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+
+    expect(setTasksFromTodosMock).toHaveBeenCalledWith(todos, TEST_SESSION_ID)
+  })
+
+  it('clears reloaded task state after completed history is followed by a user turn', async () => {
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'assistant-task',
+          type: 'assistant',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: [
+            { type: 'tool_use', name: 'TaskUpdate', id: 'task-1', input: { subject: 'Done' } },
+          ],
+        },
+        {
+          id: 'user-next',
+          type: 'user',
+          timestamp: '2026-04-06T00:00:01.000Z',
+          content: '新的问题',
+        },
+      ],
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ messages: [{ id: 'old', type: 'assistant_text', content: 'old', timestamp: 1 }] }),
+      },
+    })
+
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+
+    expect(setTasksFromTodosMock).toHaveBeenCalledWith([], TEST_SESSION_ID)
+    expect(markCompletedAndDismissedMock).toHaveBeenCalledWith(TEST_SESSION_ID)
+  })
+
   it('keeps parent tool linkage for live tool events', () => {
     // Initialize the session first
     useChatStore.setState({
@@ -580,6 +726,24 @@ describe('chatStore history mapping', () => {
         parentToolUseId: 'agent-1',
       },
     ])
+  })
+
+  it('syncs live TodoWrite tool input into the task store for that session', () => {
+    const todos = [{ content: 'Live todo', status: 'in_progress' }]
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ chatState: 'tool_executing' }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'tool_use_complete',
+      toolName: 'TodoWrite',
+      toolUseId: 'todo-live',
+      input: { todos },
+    })
+
+    expect(setTasksFromTodosMock).toHaveBeenCalledWith(todos, TEST_SESSION_ID)
   })
 
   it('replays saved runtime selection when reconnecting a session', () => {
@@ -811,6 +975,8 @@ describe('chatStore history mapping', () => {
   })
 
   it('clears local desktop chat state when the server confirms /clear', () => {
+    vi.useFakeTimers()
+
     useChatStore.setState({
       sessions: {
         [TEST_SESSION_ID]: {
@@ -838,6 +1004,10 @@ describe('chatStore history mapping', () => {
     })
 
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'stale throttled delta',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
       subtype: 'session_cleared',
       message: 'Conversation cleared',
@@ -849,7 +1019,34 @@ describe('chatStore history mapping', () => {
     expect(session?.chatState).toBe('idle')
     expect(session?.tokenUsage).toEqual({ input_tokens: 0, output_tokens: 0 })
     expect(session?.slashCommands).toEqual([])
-    expect(clearTasksMock).toHaveBeenCalled()
+    expect(clearTasksMock).toHaveBeenCalledWith(TEST_SESSION_ID)
+
+    vi.advanceTimersByTime(60)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.streamingText).toBe('')
+    vi.useRealTimers()
+  })
+
+  it('clears local message state for only the requested session', () => {
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession({
+          messages: [{ id: 'a1', type: 'assistant_text', content: 'A old', timestamp: 1 }],
+          streamingText: 'A pending',
+        }),
+        'session-b': makeSession({
+          messages: [{ id: 'b1', type: 'assistant_text', content: 'B old', timestamp: 1 }],
+          streamingText: 'B pending',
+        }),
+      },
+    })
+
+    useChatStore.getState().clearMessages('session-a')
+
+    expect(useChatStore.getState().sessions['session-a']?.messages).toEqual([])
+    expect(useChatStore.getState().sessions['session-a']?.streamingText).toBe('')
+    expect(useChatStore.getState().sessions['session-b']?.messages).toMatchObject([
+      { content: 'B old' },
+    ])
   })
 
   it('renders compact boundary notifications as system messages', () => {
@@ -958,7 +1155,7 @@ describe('chatStore history mapping', () => {
 
     useChatStore.getState().sendMessage(TEST_SESSION_ID, '继续下一轮')
 
-    expect(resetCompletedTasksMock).toHaveBeenCalledTimes(1)
+    expect(resetCompletedTasksMock).toHaveBeenCalledWith(TEST_SESSION_ID)
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
       {
         type: 'task_summary',
@@ -972,6 +1169,71 @@ describe('chatStore history mapping', () => {
         content: '继续下一轮',
       },
     ])
+  })
+
+  it('does not attach completed tasks from another tracked session to a new user turn', () => {
+    cliTaskStoreSnapshot.sessionId = 'session-b'
+    cliTaskStoreSnapshot.tasks = [
+      { id: '1', subject: 'Session B completed task', status: 'completed' },
+    ]
+
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession({ chatState: 'idle' }),
+        'session-b': makeSession({ chatState: 'idle' }),
+      },
+    })
+
+    useChatStore.getState().sendMessage('session-a', '继续 A 会话')
+
+    expect(resetCompletedTasksMock).not.toHaveBeenCalled()
+    expect(useChatStore.getState().sessions['session-a']?.messages).toMatchObject([
+      {
+        type: 'user_text',
+        content: '继续 A 会话',
+      },
+    ])
+  })
+
+  it('tracks task tool results independently per session even when tool IDs collide', () => {
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession({
+          activeToolUseId: 'tool-same',
+          activeToolName: 'TaskCreate',
+        }),
+        'session-b': makeSession({
+          activeToolUseId: 'tool-same',
+          activeToolName: 'TaskCreate',
+        }),
+      },
+    })
+
+    for (const sessionId of ['session-a', 'session-b']) {
+      useChatStore.getState().handleServerMessage(sessionId, {
+        type: 'tool_use_complete',
+        toolName: 'TaskCreate',
+        toolUseId: 'tool-same',
+        input: { subject: sessionId },
+      })
+    }
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'tool_result',
+      toolUseId: 'tool-same',
+      content: 'created A',
+      isError: false,
+    })
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'tool_result',
+      toolUseId: 'tool-same',
+      content: 'created B',
+      isError: false,
+    })
+
+    expect(refreshTasksMock).toHaveBeenCalledTimes(2)
+    expect(refreshTasksMock).toHaveBeenNthCalledWith(1, 'session-a')
+    expect(refreshTasksMock).toHaveBeenNthCalledWith(2, 'session-b')
   })
 
   it('tracks Computer Use approval requests separately from generic tool permissions', () => {
@@ -1101,6 +1363,218 @@ describe('chatStore history mapping', () => {
     ])
 
     vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('keeps throttled streaming deltas isolated per session', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession(),
+        'session-b': makeSession(),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'content_delta',
+      text: 'A-only response',
+    })
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'content_start',
+      blockType: 'text',
+    })
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'content_delta',
+      text: 'B-only response',
+    })
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+
+    expect(useChatStore.getState().sessions['session-a']?.messages).toMatchObject([
+      { type: 'assistant_text', content: 'A-only response' },
+    ])
+    expect(useChatStore.getState().sessions['session-b']?.messages).toMatchObject([
+      { type: 'assistant_text', content: 'B-only response' },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('flushes pending text before appending a thinking block', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ chatState: 'streaming' }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'visible answer before thinking',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'thinking',
+      text: 'internal note',
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      { type: 'assistant_text', content: 'visible answer before thinking' },
+      { type: 'thinking', content: 'internal note' },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('flushes pending text before appending an error message', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ chatState: 'streaming' }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'content_delta',
+      text: 'partial answer before error',
+    })
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'error',
+      message: 'provider failed',
+      code: 'provider_error',
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      { type: 'assistant_text', content: 'partial answer before error' },
+      { type: 'error', message: 'provider failed' },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('flushes throttled deltas only for the stopped session', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession(),
+        'session-b': makeSession(),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'content_delta',
+      text: 'A-only response',
+    })
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'content_delta',
+      text: 'B-only response',
+    })
+
+    useChatStore.getState().stopGeneration('session-a')
+
+    expect(useChatStore.getState().sessions['session-a']?.streamingText).toBe('A-only response')
+    expect(useChatStore.getState().sessions['session-b']?.streamingText).toBe('')
+
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+
+    expect(useChatStore.getState().sessions['session-b']?.messages).toMatchObject([
+      { type: 'assistant_text', content: 'B-only response' },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('does not flush one session throttled delta into another disconnected session', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession(),
+        'session-b': makeSession(),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'content_delta',
+      text: 'A-only response',
+    })
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'content_delta',
+      text: 'B-only response',
+    })
+
+    useChatStore.getState().disconnectSession('session-a')
+
+    expect(useChatStore.getState().sessions['session-a']).toBeUndefined()
+    expect(useChatStore.getState().sessions['session-b']?.streamingText).toBe('')
+
+    useChatStore.getState().handleServerMessage('session-b', {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
+
+    expect(useChatStore.getState().sessions['session-b']?.messages).toMatchObject([
+      { type: 'assistant_text', content: 'B-only response' },
+    ])
+
+    vi.runOnlyPendingTimers()
+    vi.useRealTimers()
+  })
+
+  it('ignores late throttled deltas after a session has disconnected', () => {
+    vi.useFakeTimers()
+
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession(),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'content_delta',
+      text: 'before disconnect',
+    })
+    useChatStore.getState().disconnectSession('session-a')
+
+    useChatStore.getState().handleServerMessage('session-a', {
+      type: 'content_delta',
+      text: 'late stale delta',
+    })
+    useChatStore.setState({
+      sessions: {
+        'session-a': makeSession({ chatState: 'idle' }),
+      },
+    })
+
+    useChatStore.getState().sendMessage('session-a', 'fresh turn')
+
+    expect(useChatStore.getState().sessions['session-a']?.messages).toMatchObject([
+      { type: 'user_text', content: 'fresh turn' },
+    ])
+
+    vi.runOnlyPendingTimers()
+    expect(useChatStore.getState().sessions['session-a']?.streamingText).toBe('')
     vi.useRealTimers()
   })
 

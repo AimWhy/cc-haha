@@ -193,6 +193,10 @@ export const handleWebSocket = {
     }
 
     console.log(`[WS] Client disconnected from session: ${sessionId} (${code}: ${reason})`)
+    if (activeSessions.get(sessionId) !== ws) {
+      console.log(`[WS] Ignoring stale client disconnect for session: ${sessionId}`)
+      return
+    }
     computerUseApprovalService.cancelSession(sessionId)
     activeSessions.delete(sessionId)
     conversationService.clearOutputCallbacks(sessionId)
@@ -1497,4 +1501,12 @@ export function sendToSession(sessionId: string, message: ServerMessage): boolea
 
 export function getActiveSessionIds(): string[] {
   return Array.from(activeSessions.keys())
+}
+
+export function __resetWebSocketHandlerStateForTests(): void {
+  for (const timer of sessionCleanupTimers.values()) clearTimeout(timer)
+  for (const timer of prewarmIdleTimers.values()) clearTimeout(timer)
+  activeSessions.clear()
+  sessionCleanupTimers.clear()
+  prewarmIdleTimers.clear()
 }
