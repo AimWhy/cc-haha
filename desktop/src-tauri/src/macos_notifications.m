@@ -78,6 +78,15 @@ static void cchh_copy_error(char *buffer, uintptr_t buffer_len, NSString *messag
     buffer[max_len] = '\0';
 }
 
+static void cchh_run_on_main_sync(dispatch_block_t block) {
+    if ([NSThread isMainThread]) {
+        block();
+        return;
+    }
+
+    dispatch_sync(dispatch_get_main_queue(), block);
+}
+
 void cchh_set_notification_response_callback(CCHHNotificationResponseCallback callback) {
     cchhNotificationResponseCallback = callback;
 }
@@ -116,10 +125,12 @@ int cchh_notification_authorization_status(char *error_buffer, uintptr_t error_b
             __block NSInteger status = UNAuthorizationStatusNotDetermined;
             dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 
-            [cchh_notification_center() getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
-                status = settings.authorizationStatus;
-                dispatch_semaphore_signal(semaphore);
-            }];
+            cchh_run_on_main_sync(^{
+                [cchh_notification_center() getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings) {
+                    status = settings.authorizationStatus;
+                    dispatch_semaphore_signal(semaphore);
+                }];
+            });
 
             if (dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) != 0) {
                 cchh_copy_error(error_buffer, error_buffer_len, @"Timed out while reading macOS notification permission");
@@ -143,11 +154,13 @@ bool cchh_request_notification_authorization(char *error_buffer, uintptr_t error
             dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
             UNAuthorizationOptions options = UNAuthorizationOptionAlert | UNAuthorizationOptionSound;
 
-            [cchh_notification_center() requestAuthorizationWithOptions:options completionHandler:^(BOOL isGranted, NSError *error) {
-                granted = isGranted;
-                requestError = error;
-                dispatch_semaphore_signal(semaphore);
-            }];
+            cchh_run_on_main_sync(^{
+                [cchh_notification_center() requestAuthorizationWithOptions:options completionHandler:^(BOOL isGranted, NSError *error) {
+                    granted = isGranted;
+                    requestError = error;
+                    dispatch_semaphore_signal(semaphore);
+                }];
+            });
 
             if (dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 30 * NSEC_PER_SEC)) != 0) {
                 cchh_copy_error(error_buffer, error_buffer_len, @"Timed out while requesting macOS notification permission");
@@ -195,10 +208,12 @@ bool cchh_send_user_notification(const char *title, const char *body, const char
             __block NSError *deliveryError = nil;
             dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
 
-            [cchh_notification_center() addNotificationRequest:request withCompletionHandler:^(NSError *error) {
-                deliveryError = error;
-                dispatch_semaphore_signal(semaphore);
-            }];
+            cchh_run_on_main_sync(^{
+                [cchh_notification_center() addNotificationRequest:request withCompletionHandler:^(NSError *error) {
+                    deliveryError = error;
+                    dispatch_semaphore_signal(semaphore);
+                }];
+            });
 
             if (dispatch_semaphore_wait(semaphore, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) != 0) {
                 cchh_copy_error(error_buffer, error_buffer_len, @"Timed out while delivering macOS notification");
