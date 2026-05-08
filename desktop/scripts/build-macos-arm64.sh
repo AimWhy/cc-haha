@@ -281,11 +281,13 @@ sign_canonical_app_bundle() {
   codesign --verify --deep --strict --verbose=2 "${app_bundle}"
 }
 
-if [[ -n "${LATEST_DMG}" ]]; then
-  cp -f "${LATEST_DMG}" "${CANONICAL_OUTPUT_DIR}/"
-fi
-
 if [[ -n "${LATEST_APP}" ]]; then
+  # Normalize the Tauri-produced app in place before copying it anywhere.
+  # Without this, opening target/.../bundle/macos/Claude Code Haha.app directly
+  # uses the executable's ad-hoc signing identifier instead of the app bundle id,
+  # which makes macOS notification authorization behave like a different app.
+  sign_canonical_app_bundle "${LATEST_APP}"
+
   # 不要 deep re-sign。曾经脚本在这里跑过
   # `codesign --force --deep --sign - --identifier <bundle-id>` 来统一
   # sidecar 和外层的 signing identifier,但这会改变 sidecar binary 的
@@ -296,16 +298,25 @@ if [[ -n "${LATEST_APP}" ]]; then
   cp -R "${LATEST_APP}" "${CANONICAL_OUTPUT_DIR}/"
   sign_canonical_app_bundle "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}"
   rm -f "${CANONICAL_OUTPUT_DIR}/"*.dmg
+  CANONICAL_DMG="${CANONICAL_OUTPUT_DIR}/$(basename "${LATEST_DMG:-Claude Code Haha_0.1.0_aarch64.dmg}")"
   build_canonical_dmg \
     "${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}" \
-    "${CANONICAL_OUTPUT_DIR}/$(basename "${LATEST_DMG:-Claude Code Haha_0.1.0_aarch64.dmg}")"
+    "${CANONICAL_DMG}"
+
+  if [[ -n "${LATEST_DMG}" ]]; then
+    cp -f "${CANONICAL_DMG}" "${LATEST_DMG}"
+  fi
+elif [[ -n "${LATEST_DMG}" ]]; then
+  cp -f "${LATEST_DMG}" "${CANONICAL_OUTPUT_DIR}/"
 fi
 
 cat > "${CANONICAL_OUTPUT_DIR}/BUILD_INFO.txt" <<EOF
 Target triple: ${TARGET_TRIPLE}
 Canonical output: ${CANONICAL_OUTPUT_DIR}
-Source DMG: ${LATEST_DMG:-not found}
-Source app: ${LATEST_APP:-not found}
+Canonical app: ${CANONICAL_OUTPUT_DIR}/${APP_BUNDLE_NAME}
+Canonical DMG: ${CANONICAL_DMG:-not found}
+Tauri app output: ${LATEST_APP:-not found}
+Tauri DMG output: ${LATEST_DMG:-not found}
 Built at: $(date '+%Y-%m-%d %H:%M:%S %z')
 EOF
 
@@ -315,16 +326,16 @@ fi
 
 echo
 echo "[build-macos-arm64] Build finished."
-if [[ -n "${LATEST_DMG}" ]]; then
-  echo "[build-macos-arm64] DMG source: ${LATEST_DMG}"
-else
-  echo "[build-macos-arm64] No DMG found in ${TARGETED_DMG_DIR} or ${FALLBACK_DMG_DIR}" >&2
-fi
-
 if [[ -n "${LATEST_APP}" ]]; then
-  echo "[build-macos-arm64] App source: ${LATEST_APP}"
+  echo "[build-macos-arm64] Tauri app output (identity normalized): ${LATEST_APP}"
 else
   echo "[build-macos-arm64] No .app found in ${TARGETED_APP_DIR} or ${FALLBACK_APP_DIR}" >&2
+fi
+
+if [[ -n "${LATEST_DMG}" ]]; then
+  echo "[build-macos-arm64] Tauri DMG output (replaced with canonical DMG): ${LATEST_DMG}"
+else
+  echo "[build-macos-arm64] No DMG found in ${TARGETED_DMG_DIR} or ${FALLBACK_DMG_DIR}" >&2
 fi
 
 echo "[build-macos-arm64] Canonical output: ${CANONICAL_OUTPUT_DIR}"
