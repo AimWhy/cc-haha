@@ -117,4 +117,47 @@ describe('ModelSelector', () => {
       modelId: 'provider-fast',
     })
   })
+
+  it('portals the dropdown outside clipping containers and positions it below the trigger', async () => {
+    useSettingsStore.setState({
+      locale: 'en',
+      availableModels: MODELS,
+      currentModel: MODELS[0],
+    })
+
+    const { container } = render(
+      <div data-testid="scroll-container" className="overflow-hidden">
+        <ModelSelector value="alpha" onChange={vi.fn()} />
+      </div>,
+    )
+
+    const trigger = screen.getByRole('button', { name: /alpha/i })
+    Object.defineProperty(trigger.parentElement, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        top: 120,
+        right: 520,
+        bottom: 150,
+        left: 240,
+        width: 280,
+        height: 30,
+        x: 240,
+        y: 120,
+        toJSON: () => {},
+      }),
+    })
+
+    await act(async () => {
+      fireEvent.click(trigger)
+      await Promise.resolve()
+    })
+
+    const dropdown = screen.getByTestId('model-selector-dropdown')
+    expect(container.contains(dropdown)).toBe(false)
+    expect(document.body.contains(dropdown)).toBe(true)
+    expect(dropdown.className).toContain('fixed')
+    expect(dropdown.style.top).toBe('158px')
+    expect(dropdown.style.left).toBe('160px')
+    expect(dropdown.style.width).toBe('360px')
+  })
 })
