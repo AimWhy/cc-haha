@@ -534,10 +534,12 @@ function chooseRicherUsage(
 }
 
 async function getGitInfo(sessionId: string): Promise<Response> {
-  const workDir = await sessionService.getSessionWorkDir(sessionId)
+  const workDir = conversationService.getSessionWorkDir(sessionId) || await sessionService.getSessionWorkDir(sessionId)
   if (!workDir) {
     throw ApiError.notFound(`Session not found: ${sessionId}`)
   }
+  const launchInfo = await sessionService.getSessionLaunchInfo(sessionId).catch(() => null)
+  const sessionBranch = launchInfo?.repository?.branch || null
 
   try {
     // Get branch name
@@ -547,7 +549,7 @@ async function getGitInfo(sessionId: string): Promise<Response> {
       stderr: 'pipe',
     })
     const branchText = await new Response(branchProc.stdout).text()
-    const branch = branchText.trim()
+    const branch = sessionBranch || branchText.trim()
 
     // Get repo name from remote or directory
     let repoName = ''
@@ -586,7 +588,7 @@ async function getGitInfo(sessionId: string): Promise<Response> {
   } catch {
     // Not a git repo or git not available
     return Response.json({
-      branch: null,
+      branch: sessionBranch,
       repoName: null,
       workDir,
       changedFiles: 0,

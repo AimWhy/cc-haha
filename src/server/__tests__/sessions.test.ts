@@ -7,8 +7,7 @@ import * as fs from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
 import * as path from 'node:path'
 import * as os from 'node:os'
-import { SessionService } from '../services/sessionService.js'
-import { sessionService } from '../services/sessionService.js'
+import { SessionService, sessionService } from '../services/sessionService.js'
 import {
   getRepositoryContext,
   prepareSessionWorkspace,
@@ -37,6 +36,36 @@ async function cleanupTmpDir(): Promise<void> {
     await fs.rm(tmpDir, { recursive: true, force: true })
   }
   delete process.env.CLAUDE_CONFIG_DIR
+}
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+  })
+}
+
+async function createCleanGitRepo(baseDir: string): Promise<string> {
+  const workDir = path.join(
+    baseDir,
+    `repo-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  )
+
+  await fs.mkdir(workDir, { recursive: true })
+  git(workDir, 'init')
+  git(workDir, 'config', 'user.email', 'sessions-api@example.com')
+  git(workDir, 'config', 'user.name', 'Sessions API')
+  git(workDir, 'checkout', '-b', 'main')
+  await fs.writeFile(path.join(workDir, 'README.md'), 'main\n')
+  git(workDir, 'add', 'README.md')
+  git(workDir, 'commit', '-m', 'initial')
+  git(workDir, 'checkout', '-b', 'feature/rail')
+  await fs.writeFile(path.join(workDir, 'feature.txt'), 'feature\n')
+  git(workDir, 'add', 'feature.txt')
+  git(workDir, 'commit', '-m', 'feature')
+  git(workDir, 'checkout', 'main')
+
+  return workDir
 }
 
 /** Write a JSONL session file with given entries. */
@@ -1435,6 +1464,48 @@ describe('Sessions API', () => {
         outputFile: 'C:\\Temp\\bg.output',
       },
     ])
+  })
+
+  it('GET /api/sessions/:id/git-info should prefer the active CLI workDir', async () => {
+    const workDir = await createCleanGitRepo(tmpDir)
+    const activeWorktree = path.join(tmpDir, `active-feature-rail-${Date.now()}`)
+    git(workDir, 'worktree', 'add', activeWorktree, 'feature/rail')
+    const { sessionId } = await sessionService.createSession(workDir)
+    const sessionsMap = (conversationService as any).sessions as Map<string, { workDir: string }>
+
+    sessionsMap.set(sessionId, { workDir: activeWorktree })
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/git-info`)
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as { branch: string | null; workDir: string }
+      expect(body.workDir).toBe(activeWorktree)
+      expect(body.branch).toBe('feature/rail')
+    } finally {
+      sessionsMap.delete(sessionId)
+    }
+  })
+
+  it('GET /api/sessions/:id/git-info should keep the session launch branch stable', async () => {
+    const workDir = await createCleanGitRepo(tmpDir)
+    const { sessionId } = await sessionService.createSession(
+      workDir,
+      { branch: 'feature/rail', worktree: false },
+    )
+    const sessionsMap = (conversationService as any).sessions as Map<string, { workDir: string }>
+
+    sessionsMap.set(sessionId, { workDir })
+    git(workDir, 'switch', 'main')
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/git-info`)
+      expect(res.status).toBe(200)
+
+      const body = (await res.json()) as { branch: string | null; workDir: string }
+      expect(body.workDir).toBe(workDir)
+      expect(body.branch).toBe('feature/rail')
+    } finally {
+      sessionsMap.delete(sessionId)
+    }
   })
 
   it('DELETE /api/sessions/:id should delete the session', async () => {

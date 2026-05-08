@@ -138,6 +138,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     ],
     [attachments, workspaceReferences],
   )
+  const slashCommandCount = slashCommands.length
 
   useEffect(() => {
     textareaRef.current?.focus()
@@ -174,7 +175,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     })
   }, [composerPrefill])
 
-  useEffect(() => {
+  const refreshGitInfo = useCallback(() => {
     if (!activeTabId) {
       setGitInfo(null)
       return
@@ -185,6 +186,16 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     }
     sessionsApi.getGitInfo(activeTabId).then(setGitInfo).catch(() => setGitInfo(null))
   }, [activeTabId, isMemberSession])
+
+  useEffect(() => {
+    refreshGitInfo()
+  }, [refreshGitInfo])
+
+  useEffect(() => {
+    if (!activeTabId || isMemberSession || messageCount === 0) return
+    const timeout = setTimeout(refreshGitInfo, chatState === 'idle' ? 0 : 500)
+    return () => clearTimeout(timeout)
+  }, [activeTabId, chatState, isMemberSession, messageCount, refreshGitInfo, slashCommandCount])
 
   useEffect(() => {
     if (!isMemberSession) return
