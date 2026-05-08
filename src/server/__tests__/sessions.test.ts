@@ -1677,6 +1677,58 @@ describe('Sessions API', () => {
     })
   })
 
+  it('GET /api/sessions/:id/git-info should prefer CLI worktree-state identity over desktop metadata', async () => {
+    const workDir = await createCleanGitRepo(tmpDir)
+    const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+    const activeWorktree = path.join(workDir, '.claude', 'worktrees', 'desktop-main-12345678')
+    git(workDir, 'worktree', 'add', '-b', 'worktree-desktop-main-12345678', activeWorktree, 'main')
+    await writeSessionFile(sanitizePath(activeWorktree), sessionId, [
+      makeSnapshotEntry(),
+      {
+        type: 'session-meta',
+        isMeta: true,
+        workDir: activeWorktree,
+        repository: {
+          requestedWorkDir: '/stale/source',
+          repoRoot: '/stale/source',
+          branch: 'main',
+          worktree: true,
+          baseRef: 'main',
+          worktreePath: '/stale/source/.claude/worktrees/stale',
+          worktreeBranch: 'worktree-stale',
+          worktreeSlug: 'stale',
+        },
+        timestamp: '2026-01-01T00:00:00.000Z',
+      },
+      makeWorktreeStateEntry(sessionId, activeWorktree, {
+        originalCwd: await fs.realpath(workDir),
+      }),
+      makeUserEntry('Hello from persisted worktree state'),
+    ])
+
+    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/git-info`)
+    expect(res.status).toBe(200)
+
+    const body = (await res.json()) as {
+      branch: string | null
+      worktree: {
+        path: string | null
+        plannedPath: string | null
+        sourceWorkDir: string | null
+        slug: string | null
+        branch: string | null
+      } | null
+    }
+    expect(body.branch).toBe('main')
+    expect(body.worktree).toMatchObject({
+      path: activeWorktree,
+      plannedPath: activeWorktree,
+      sourceWorkDir: await fs.realpath(workDir),
+      slug: 'desktop-main-12345678',
+      branch: 'worktree-desktop-main-12345678',
+    })
+  })
+
   it('DELETE /api/sessions/:id should delete the session', async () => {
     const sessionId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
     await writeSessionFile('-tmp-api-test', sessionId, [makeSnapshotEntry()])

@@ -541,15 +541,18 @@ async function getGitInfo(sessionId: string): Promise<Response> {
   const launchInfo = await sessionService.getSessionLaunchInfo(sessionId).catch(() => null)
   const repository = launchInfo?.repository
   const worktreeSession = launchInfo?.worktreeSession
+  // The visible business branch comes from Desktop's launch choice when present.
+  // CLI originalBranch is the source checkout before creating the worktree, which
+  // can differ from the selected base ref.
   const sessionBranch = repository?.branch || worktreeSession?.originalBranch || null
   const worktree = repository?.worktree || worktreeSession
     ? {
         enabled: true,
         path: worktreeSession?.worktreePath || workDir,
-        plannedPath: repository?.worktreePath || worktreeSession?.worktreePath || null,
-        sourceWorkDir: repository?.requestedWorkDir || repository?.repoRoot || worktreeSession?.originalCwd || null,
-        slug: repository?.worktreeSlug || worktreeSession?.worktreeName || null,
-        branch: repository?.worktreeBranch || worktreeSession?.worktreeBranch || null,
+        plannedPath: worktreeSession?.worktreePath || repository?.worktreePath || null,
+        sourceWorkDir: worktreeSession?.originalCwd || repository?.requestedWorkDir || repository?.repoRoot || null,
+        slug: worktreeSession?.worktreeName || repository?.worktreeSlug || null,
+        branch: worktreeSession?.worktreeBranch || repository?.worktreeBranch || null,
       }
     : null
 
