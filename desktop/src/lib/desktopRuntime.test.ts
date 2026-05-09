@@ -56,7 +56,9 @@ describe('desktopRuntime browser H5 bootstrap', () => {
     globalThis.fetch = vi.fn().mockResolvedValue(
       new Response(null, { status: 200 }),
     ) as typeof fetch
-    clientMocks.postVerify.mockRejectedValueOnce(new Error('Unauthorized'))
+    clientMocks.postVerify.mockRejectedValueOnce(
+      Object.assign(new Error('Invalid or missing H5 access token'), { status: 401 }),
+    )
 
     await expect(initializeDesktopServerUrl()).rejects.toMatchObject({
       name: 'H5ConnectionRequiredError',
@@ -68,6 +70,20 @@ describe('desktopRuntime browser H5 bootstrap', () => {
       'https://public.example.com/app',
     )
     expect(window.localStorage.getItem(H5_TOKEN_STORAGE_KEY)).toBeNull()
+  })
+
+  it('does not reuse stored remote H5 tokens for loopback browser startup', async () => {
+    window.history.pushState({}, '', '/?serverUrl=http%3A%2F%2F%5B%3A%3A1%5D%3A3456')
+    window.localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'remote-token')
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(null, { status: 200 }),
+    ) as typeof fetch
+
+    await expect(initializeDesktopServerUrl()).resolves.toBe('http://[::1]:3456')
+
+    expect(clientMocks.setBaseUrl).toHaveBeenLastCalledWith('http://[::1]:3456')
+    expect(clientMocks.setAuthToken).toHaveBeenLastCalledWith(null)
+    expect(clientMocks.postVerify).not.toHaveBeenCalled()
   })
 
   it('normalizes unreachable remote browser startup into a recoverable H5 error', async () => {

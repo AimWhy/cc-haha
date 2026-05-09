@@ -135,7 +135,7 @@ async function initializeBrowserServerUrl(fallbackUrl: string) {
   const browserH5Runtime = requiresH5AuthForServerUrl(requestedUrl)
 
   setBaseUrl(requestedUrl)
-  setAuthToken(token)
+  setAuthToken(browserH5Runtime ? token : null)
   if (browserH5Runtime) {
     rememberStoredH5ServerUrl(requestedUrl)
   }
@@ -247,7 +247,10 @@ function normalizeBrowserH5Error(error: unknown, serverUrl: string) {
 
   const message =
     error instanceof Error ? error.message : 'Unable to verify the H5 access token.'
-  const unauthorized = message.includes('401') || message.toLowerCase().includes('unauthorized')
+  const status = typeof error === 'object' && error !== null && 'status' in error
+    ? (error as { status?: unknown }).status
+    : undefined
+  const unauthorized = status === 401 || message.includes('401') || message.toLowerCase().includes('unauthorized')
   return new H5ConnectionRequiredError(
     unauthorized ? 'The saved H5 token is no longer valid.' : 'Unable to verify the H5 access token.',
     serverUrl,
