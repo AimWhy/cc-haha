@@ -7,7 +7,7 @@
 
 import { handleApiRequest } from './router.js'
 import { handleWebSocket, type WebSocketData } from './ws/handler.js'
-import { corsHeaders } from './middleware/cors.js'
+import { resolveCors, type CorsResolution } from './middleware/cors.js'
 import { requireAuth } from './middleware/auth.js'
 import { teamWatcher } from './services/teamWatcher.js'
 import { cronScheduler } from './services/cronScheduler.js'
@@ -49,6 +49,28 @@ const SERVER_OPTIONS = resolveServerOptions()
 const PORT = SERVER_OPTIONS.port
 const HOST = SERVER_OPTIONS.host
 
+function isLocalServerHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+}
+
+function withCors(response: Response, cors: CorsResolution): Response {
+  const headers = new Headers(response.headers)
+  for (const [key, value] of Object.entries(cors.headers)) {
+    headers.set(key, value)
+  }
+  return new Response(response.body, {
+    status: response.status,
+    headers,
+  })
+}
+
+function corsRejectedResponse(cors: CorsResolution): Response {
+  return Response.json(
+    { error: 'CORS origin not allowed' },
+    { status: 403, headers: cors.headers },
+  )
+}
+
 export function startServer(port = PORT, host = HOST) {
   enableConfigs()
   diagnosticsService.installConsoleCapture()
@@ -68,7 +90,7 @@ export function startServer(port = PORT, host = HOST) {
   const authRequired =
     SERVER_OPTIONS.authRequired ||
     process.env.SERVER_AUTH_REQUIRED === '1' ||
-    host !== '127.0.0.1'
+    !isLocalServerHost(host)
 
   const server = Bun.serve<WebSocketData>({
     port,
@@ -78,25 +100,28 @@ export function startServer(port = PORT, host = HOST) {
     async fetch(req, server) {
       await ensurePersistentStorageUpgraded()
       const url = new URL(req.url)
-
       const origin = req.headers.get('Origin')
+      const cors = await resolveCors(origin)
 
       // Handle CORS preflight
       if (req.method === 'OPTIONS') {
-        return new Response(null, { status: 204, headers: corsHeaders(origin) })
+        if (cors.rejected) {
+          return corsRejectedResponse(cors)
+        }
+        return new Response(null, { status: 204, headers: cors.headers })
       }
 
       // WebSocket upgrade
       if (url.pathname.startsWith('/ws/')) {
+        if (cors.rejected) {
+          return corsRejectedResponse(cors)
+        }
+
         // Enforce authentication when required
         if (authRequired) {
-          const authError = requireAuth(req)
+          const authError = await requireAuth(req, url.searchParams.get('token'))
           if (authError) {
-            const headers = new Headers(authError.headers)
-            for (const [key, value] of Object.entries(corsHeaders(origin))) {
-              headers.set(key, value)
-            }
-            return new Response(authError.body, { status: authError.status, headers })
+            return withCors(authError, cors)
           }
         }
 
@@ -149,29 +174,21 @@ export function startServer(port = PORT, host = HOST) {
 
       // REST API
       if (url.pathname.startsWith('/api/')) {
+        if (cors.rejected) {
+          return corsRejectedResponse(cors)
+        }
+
         // Enforce authentication when required
         if (authRequired) {
-          const authError = requireAuth(req)
+          const authError = await requireAuth(req)
           if (authError) {
-            const headers = new Headers(authError.headers)
-            for (const [key, value] of Object.entries(corsHeaders(origin))) {
-              headers.set(key, value)
-            }
-            return new Response(authError.body, { status: authError.status, headers })
+            return withCors(authError, cors)
           }
         }
 
         try {
           const response = await handleApiRequest(req, url)
-          // Add CORS headers to all responses
-          const headers = new Headers(response.headers)
-          for (const [key, value] of Object.entries(corsHeaders(origin))) {
-            headers.set(key, value)
-          }
-          return new Response(response.body, {
-            status: response.status,
-            headers,
-          })
+          return withCors(response, cors)
         } catch (error) {
           void diagnosticsService.recordEvent({
             type: 'api_request_failed',
@@ -180,35 +197,28 @@ export function startServer(port = PORT, host = HOST) {
             details: { path: url.pathname, method: req.method, error },
           })
           console.error('[Server] API error:', error)
-          return Response.json(
+          return withCors(Response.json(
             { error: 'Internal server error' },
-            { status: 500, headers: corsHeaders() }
-          )
+            { status: 500 },
+          ), cors)
         }
       }
 
       // Proxy — protocol-translating reverse proxy for OpenAI-compatible APIs
       if (url.pathname.startsWith('/proxy/')) {
+        if (cors.rejected) {
+          return corsRejectedResponse(cors)
+        }
+
         if (authRequired) {
-          const authError = requireAuth(req)
+          const authError = await requireAuth(req)
           if (authError) {
-            const headers = new Headers(authError.headers)
-            for (const [key, value] of Object.entries(corsHeaders(origin))) {
-              headers.set(key, value)
-            }
-            return new Response(authError.body, { status: authError.status, headers })
+            return withCors(authError, cors)
           }
         }
         try {
           const response = await handleProxyRequest(req, url)
-          const headers = new Headers(response.headers)
-          for (const [key, value] of Object.entries(corsHeaders(origin))) {
-            headers.set(key, value)
-          }
-          return new Response(response.body, {
-            status: response.status,
-            headers,
-          })
+          return withCors(response, cors)
         } catch (error) {
           void diagnosticsService.recordEvent({
             type: 'proxy_request_failed',
@@ -217,18 +227,22 @@ export function startServer(port = PORT, host = HOST) {
             details: { path: url.pathname, method: req.method, error },
           })
           console.error('[Server] Proxy error:', error)
-          return Response.json(
+          return withCors(Response.json(
             { type: 'error', error: { type: 'api_error', message: 'Internal proxy error' } },
-            { status: 500, headers: corsHeaders() },
-          )
+            { status: 500 },
+          ), cors)
         }
       }
 
       // Health check
       if (url.pathname === '/health') {
+        if (cors.rejected) {
+          return corsRejectedResponse(cors)
+        }
+
         return Response.json(
           { status: 'ok', timestamp: new Date().toISOString() },
-          { headers: corsHeaders(origin) },
+          { headers: cors.headers },
         )
       }
 
