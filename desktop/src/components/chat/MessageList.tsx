@@ -470,6 +470,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
                 />
               ) : (
                 <MessageBlock
+                  sessionId={resolvedSessionId}
                   message={item.message}
                   activeThinkingId={activeThinkingId}
                   agentTaskNotifications={agentTaskNotifications}
@@ -550,11 +551,13 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
 }
 
 export const MessageBlock = memo(function MessageBlock({
+  sessionId,
   message,
   activeThinkingId,
   agentTaskNotifications,
   toolResult,
 }: {
+  sessionId?: string | null
   message: UIMessage
   activeThinkingId: string | null
   agentTaskNotifications: Record<string, AgentTaskNotification>
@@ -578,6 +581,7 @@ export const MessageBlock = memo(function MessageBlock({
       if (message.toolName === 'AskUserQuestion') {
         return (
           <AskUserQuestion
+            sessionId={sessionId}
             toolUseId={message.toolUseId}
             input={message.input}
             result={toolResult?.content}
@@ -607,6 +611,7 @@ export const MessageBlock = memo(function MessageBlock({
     case 'permission_request':
       return (
         <PermissionDialog
+          sessionId={sessionId}
           requestId={message.requestId}
           toolName={message.toolName}
           input={message.input}
