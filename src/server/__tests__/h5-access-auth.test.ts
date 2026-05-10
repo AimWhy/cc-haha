@@ -12,6 +12,8 @@ let wsBaseUrl = ''
 let tmpDir = ''
 let originalConfigDir: string | undefined
 let originalAnthropicApiKey: string | undefined
+let originalH5DistDir: string | undefined
+let originalClaudeAppRoot: string | undefined
 let originalServerPort = 3456
 
 async function waitForServer(url: string): Promise<void> {
@@ -88,9 +90,20 @@ beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'h5-access-auth-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   originalAnthropicApiKey = process.env.ANTHROPIC_API_KEY
+  originalH5DistDir = process.env.CLAUDE_H5_DIST_DIR
+  originalClaudeAppRoot = process.env.CLAUDE_APP_ROOT
   originalServerPort = ProviderService.getServerPort()
   process.env.CLAUDE_CONFIG_DIR = tmpDir
+  const h5DistDir = path.join(tmpDir, 'dist')
+  process.env.CLAUDE_H5_DIST_DIR = h5DistDir
   delete process.env.ANTHROPIC_API_KEY
+  await fs.mkdir(path.join(h5DistDir, 'assets'), { recursive: true })
+  await fs.writeFile(
+    path.join(h5DistDir, 'index.html'),
+    '<!doctype html><html><head><script type="module" src="/assets/app.js"></script></head><body>H5 Shell</body></html>',
+    'utf-8',
+  )
+  await fs.writeFile(path.join(h5DistDir, 'assets/app.js'), 'window.__h5 = true', 'utf-8')
   await startRemoteServer()
 })
 
@@ -104,11 +117,42 @@ afterEach(async () => {
 
   if (originalAnthropicApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
   else process.env.ANTHROPIC_API_KEY = originalAnthropicApiKey
+  if (originalH5DistDir === undefined) delete process.env.CLAUDE_H5_DIST_DIR
+  else process.env.CLAUDE_H5_DIST_DIR = originalH5DistDir
+  if (originalClaudeAppRoot === undefined) delete process.env.CLAUDE_APP_ROOT
+  else process.env.CLAUDE_APP_ROOT = originalClaudeAppRoot
 
   await fs.rm(tmpDir, { recursive: true, force: true })
 })
 
 describe('remote H5 auth and CORS integration', () => {
+  test('serves the packaged H5 shell and static assets from the remote server', async () => {
+    const shellResponse = await fetch(`${baseUrl}/`)
+    expect(shellResponse.status).toBe(200)
+    expect(shellResponse.headers.get('Content-Type')).toContain('text/html')
+    await expect(shellResponse.text()).resolves.toContain('H5 Shell')
+
+    const assetResponse = await fetch(`${baseUrl}/assets/app.js`)
+    expect(assetResponse.status).toBe(200)
+    expect(assetResponse.headers.get('Cache-Control')).toContain('immutable')
+    await expect(assetResponse.text()).resolves.toContain('window.__h5')
+  })
+
+  test('finds Tauri packaged H5 resources under Resources/_up_/dist', async () => {
+    const appRoot = path.join(tmpDir, 'Fake.app', 'Contents', 'MacOS')
+    const mappedDistDir = path.join(tmpDir, 'Fake.app', 'Contents', 'Resources', '_up_', 'dist')
+    delete process.env.CLAUDE_H5_DIST_DIR
+    process.env.CLAUDE_APP_ROOT = appRoot
+
+    await fs.mkdir(mappedDistDir, { recursive: true })
+    await fs.writeFile(path.join(mappedDistDir, 'index.html'), 'Mapped H5 Shell', 'utf-8')
+
+    const response = await fetch(`${baseUrl}/`)
+
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.toContain('Mapped H5 Shell')
+  })
+
   test('rejects /api/status when H5 is disabled and no Anthropic key exists', async () => {
     const response = await fetch(`${baseUrl}/api/status`)
 
@@ -184,6 +228,20 @@ describe('remote H5 auth and CORS integration', () => {
 
     expect(response.status).toBe(403)
     expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull()
+  })
+
+  test('allows same-origin H5 browser requests without a separate origin allowlist entry', async () => {
+    const token = await enableH5Access()
+
+    const response = await fetch(`${baseUrl}/api/status`, {
+      headers: {
+        Origin: baseUrl,
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe(baseUrl)
   })
 
   test('allows configured CORS origins and includes Vary: Origin', async () => {

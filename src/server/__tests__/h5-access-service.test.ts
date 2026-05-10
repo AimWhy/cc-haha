@@ -7,6 +7,8 @@ import { ProviderService } from '../services/providerService.js'
 
 let tmpDir: string
 let originalConfigDir: string | undefined
+let originalH5PublicBaseUrl: string | undefined
+let originalH5AutoPublicUrl: string | undefined
 
 function getManagedSettingsPath(): string {
   return path.join(tmpDir, 'cc-haha', 'settings.json')
@@ -15,12 +17,18 @@ function getManagedSettingsPath(): string {
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'h5-access-service-test-'))
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+  originalH5PublicBaseUrl = process.env.CLAUDE_H5_PUBLIC_BASE_URL
+  originalH5AutoPublicUrl = process.env.CLAUDE_H5_AUTO_PUBLIC_URL
   process.env.CLAUDE_CONFIG_DIR = tmpDir
 })
 
 afterEach(async () => {
   if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
   else process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+  if (originalH5PublicBaseUrl === undefined) delete process.env.CLAUDE_H5_PUBLIC_BASE_URL
+  else process.env.CLAUDE_H5_PUBLIC_BASE_URL = originalH5PublicBaseUrl
+  if (originalH5AutoPublicUrl === undefined) delete process.env.CLAUDE_H5_AUTO_PUBLIC_URL
+  else process.env.CLAUDE_H5_AUTO_PUBLIC_URL = originalH5AutoPublicUrl
   await fs.rm(tmpDir, { recursive: true, force: true })
 })
 
@@ -65,6 +73,16 @@ describe('H5AccessService', () => {
     )
     expect(raw).not.toContain(result.token)
     expect(await service.validateToken(result.token)).toBe(true)
+  })
+
+  test('enabled public settings use the packaged app LAN URL when provided', async () => {
+    process.env.CLAUDE_H5_PUBLIC_BASE_URL = 'http://192.168.1.20:28670/'
+    process.env.CLAUDE_H5_AUTO_PUBLIC_URL = '1'
+    const service = new H5AccessService()
+
+    const result = await service.enable()
+
+    expect(result.settings.publicBaseUrl).toBe('http://192.168.1.20:28670')
   })
 
   test('regenerateToken invalidates the previous token', async () => {

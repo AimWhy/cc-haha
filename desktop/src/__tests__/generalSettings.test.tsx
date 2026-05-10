@@ -136,6 +136,7 @@ describe('Settings > General tab', () => {
       thinkingEnabled: true,
       skipWebFetchPreflight: true,
       desktopNotificationsEnabled: true,
+      responseLanguage: '',
       webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
       h5Access: {
         enabled: false,
@@ -152,6 +153,9 @@ describe('Settings > General tab', () => {
       }),
       setDesktopNotificationsEnabled: vi.fn().mockImplementation(async (enabled: boolean) => {
         useSettingsStore.setState({ desktopNotificationsEnabled: enabled })
+      }),
+      setResponseLanguage: vi.fn().mockImplementation(async (language: string) => {
+        useSettingsStore.setState({ responseLanguage: language })
       }),
       setWebSearch: vi.fn().mockImplementation(async (webSearch) => {
         useSettingsStore.setState({ webSearch })
@@ -224,6 +228,22 @@ describe('Settings > General tab', () => {
     expect(useSettingsStore.getState().setThinkingEnabled).toHaveBeenCalledWith(false)
   })
 
+  it('uses the shared dropdown for response language', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+
+    expect(screen.queryByRole('combobox', { name: 'Response Language' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: 'Response Language' })).not.toBeInTheDocument()
+
+    const trigger = screen.getByRole('button', { name: 'Response Language' })
+    expect(trigger).toHaveTextContent('Default (English)')
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: '中文 (Chinese)' }))
+
+    expect(useSettingsStore.getState().setResponseLanguage).toHaveBeenCalledWith('chinese')
+  })
+
   it('lets the user disable desktop system notifications', () => {
     render(<Settings />)
 
@@ -279,6 +299,16 @@ describe('Settings > General tab', () => {
     const section = screen.getByRole('region', { name: 'H5 Access' })
     expect(within(section).getByLabelText('Enable H5 access')).not.toBeChecked()
     expect(within(section).getByText('Disabled')).toBeInTheDocument()
+  })
+
+  it('places H5 access after the common General settings sections', () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+
+    const webSearchTitle = screen.getByRole('heading', { name: 'WebSearch' })
+    const h5Title = screen.getByRole('heading', { name: 'H5 Access' })
+    expect((webSearchTitle.compareDocumentPosition(h5Title) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
   })
 
   it('enables H5 access from the General settings section', async () => {

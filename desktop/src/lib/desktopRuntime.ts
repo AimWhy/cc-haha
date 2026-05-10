@@ -130,7 +130,11 @@ async function initializeBrowserServerUrl(fallbackUrl: string) {
       ? new URLSearchParams(window.location.search).get('serverUrl')
       : null
   const stored = readStoredH5Connection()
-  const requestedUrl = normalizeServerUrl(queryUrl) ?? stored.serverUrl ?? fallbackUrl
+  const requestedUrl =
+    normalizeServerUrl(queryUrl) ??
+    stored.serverUrl ??
+    getSameOriginServerUrl() ??
+    fallbackUrl
   const token = stored.token
   const browserH5Runtime = requiresH5AuthForServerUrl(requestedUrl)
 
@@ -231,6 +235,18 @@ function normalizeServerUrl(value: string | null | undefined) {
 function normalizeToken(value: string | null | undefined) {
   const trimmed = value?.trim()
   return trimmed ? trimmed : null
+}
+
+function getSameOriginServerUrl() {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  if (window.location.protocol !== 'http:' && window.location.protocol !== 'https:') {
+    return null
+  }
+
+  return normalizeServerUrl(window.location.origin)
 }
 
 export function isLoopbackHostname(hostname: string) {

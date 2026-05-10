@@ -94,6 +94,23 @@ describe('desktopRuntime browser H5 bootstrap', () => {
     expect(clientMocks.postVerify).not.toHaveBeenCalled()
   })
 
+  it('uses the current browser origin when the H5 shell is served by the desktop server', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      new Response(null, { status: 200 }),
+    ) as typeof fetch
+
+    await expect(initializeDesktopServerUrl()).resolves.toBe(window.location.origin)
+
+    expect(clientMocks.setBaseUrl).toHaveBeenLastCalledWith(window.location.origin)
+    expect(clientMocks.setAuthToken).toHaveBeenLastCalledWith(null)
+    expect(globalThis.fetch).toHaveBeenCalledWith(`${window.location.origin}/health`, {
+      cache: 'no-store',
+    })
+    expect(globalThis.fetch).toHaveBeenCalledWith(`${window.location.origin}/api/status`, {
+      cache: 'no-store',
+    })
+  })
+
   it('normalizes unreachable remote browser startup into a recoverable H5 error', async () => {
     vi.useFakeTimers()
     globalThis.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch')) as typeof fetch

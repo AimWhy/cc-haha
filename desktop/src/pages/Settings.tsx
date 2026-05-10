@@ -1452,6 +1452,8 @@ function GeneralSettings() {
     { value: 'swedish', label: 'Svenska (Swedish)' },
     { value: 'norwegian', label: 'Norsk (Norwegian)' },
   ]
+  const selectedResponseLanguageLabel =
+    RESPONSE_LANGUAGES.find(({ value }) => value === responseLanguage)?.label ?? RESPONSE_LANGUAGES[0]!.label
 
   const THEMES: Array<{ value: ThemeMode; label: string }> = [
     { value: 'light', label: t('settings.general.appearance.light') },
@@ -1607,17 +1609,24 @@ function GeneralSettings() {
       {/* Response Language */}
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.responseLangTitle')}</h2>
       <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.responseLangDescription')}</p>
-      <div className="flex gap-2 mb-8">
-        <select
-          value={responseLangDraft}
-          onChange={(e) => void setResponseLanguage(e.target.value)}
-          className="flex-1 px-3 py-2 text-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] text-[var(--color-text-primary)] focus:outline-none focus:border-[var(--color-brand)] transition-colors cursor-pointer"
-        >
-          {RESPONSE_LANGUAGES.map(({ value, label }) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-      </div>
+      <Dropdown<string>
+        items={RESPONSE_LANGUAGES}
+        value={responseLanguage}
+        onChange={(value) => void setResponseLanguage(value)}
+        width="100%"
+        maxHeight={320}
+        className="mb-8 block w-full"
+        trigger={
+          <button
+            type="button"
+            aria-label={t('settings.general.responseLangTitle')}
+            className="flex h-10 w-full items-center gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-left text-sm text-[var(--color-text-primary)] outline-none transition-colors hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-container-low)] focus-visible:border-[var(--color-border-focus)] focus-visible:shadow-[var(--shadow-focus-ring)]"
+          >
+            <span className="min-w-0 flex-1 truncate">{selectedResponseLanguageLabel}</span>
+            <span className="material-symbols-outlined flex-shrink-0 text-[18px] text-[var(--color-text-secondary)]">expand_more</span>
+          </button>
+        }
+      />
 
       {/* Effort Level */}
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.effortTitle')}</h2>
@@ -1647,8 +1656,9 @@ function GeneralSettings() {
             aria-label={t('settings.general.thinkingEnabled')}
             checked={thinkingEnabled}
             onChange={(e) => void setThinkingEnabled(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-brand)] focus:ring-[var(--color-brand)]"
+            className="peer sr-only"
           />
+          <SettingsCheckboxMark checked={thinkingEnabled} />
           <div className="min-w-0">
             <div className="text-sm font-medium text-[var(--color-text-primary)]">
               {t('settings.general.thinkingEnabled')}
@@ -1670,8 +1680,9 @@ function GeneralSettings() {
               aria-label={t('settings.general.notificationsEnabled')}
               checked={desktopNotificationsEnabled}
               onChange={(e) => void handleDesktopNotificationsToggle(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-brand)] focus:ring-[var(--color-brand)]"
+              className="peer sr-only"
             />
+            <SettingsCheckboxMark checked={desktopNotificationsEnabled} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-medium text-[var(--color-text-primary)]">
                 {t('settings.general.notificationsEnabled')}
@@ -1707,6 +1718,122 @@ function GeneralSettings() {
       </div>
 
       <div className="mt-8">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webFetchPreflightTitle')}</h2>
+        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.webFetchPreflightDescription')}</p>
+        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+          <input
+            type="checkbox"
+            aria-label={t('settings.general.webFetchPreflightEnabled')}
+            checked={skipWebFetchPreflight}
+            onChange={(e) => void setSkipWebFetchPreflight(e.target.checked)}
+            className="peer sr-only"
+          />
+          <SettingsCheckboxMark checked={skipWebFetchPreflight} />
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">
+              {t('settings.general.webFetchPreflightEnabled')}
+            </div>
+            <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
+              {t('settings.general.webFetchPreflightHint')}
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <div className="mt-8">
+        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webSearchTitle')}</h2>
+        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.webSearchDescription')}</p>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-4">
+          <div className="grid grid-cols-5 gap-1.5 mb-4">
+            {WEB_SEARCH_MODES.map(({ value, label }) => (
+              <button
+                key={value}
+                onClick={() => setWebSearchDraft({ ...webSearchDraft, mode: value })}
+                className={`h-9 px-2 text-xs font-semibold rounded-lg border transition-all truncate ${
+                  (webSearchDraft.mode ?? 'auto') === value
+                    ? 'bg-[var(--color-brand)] text-white border-[var(--color-brand)]'
+                    : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+                }`}
+                title={label}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-3">
+            <Input
+              id="web-search-tavily-key"
+              type="password"
+              label={t('settings.general.webSearchTavilyKey')}
+              value={webSearchDraft.tavilyApiKey ?? ''}
+              placeholder="tvly-..."
+              autoComplete="off"
+              onChange={(event) =>
+                setWebSearchDraft({
+                  ...webSearchDraft,
+                  tavilyApiKey: event.target.value,
+                })
+              }
+            />
+            <div className="-mt-1 flex items-center justify-between gap-3 text-xs text-[var(--color-text-tertiary)]">
+              <span>{t('settings.general.webSearchTavilyFreeHint')}</span>
+              <a
+                href="https://app.tavily.com/home"
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t('settings.general.webSearchTavilyApiKeyLink')}
+                className="font-medium text-[var(--color-brand)] hover:underline whitespace-nowrap"
+              >
+                {t('settings.general.webSearchGetApiKey')}
+              </a>
+            </div>
+            <Input
+              id="web-search-brave-key"
+              type="password"
+              label={t('settings.general.webSearchBraveKey')}
+              value={webSearchDraft.braveApiKey ?? ''}
+              placeholder={t('settings.general.webSearchBravePlaceholder')}
+              autoComplete="off"
+              onChange={(event) =>
+                setWebSearchDraft({
+                  ...webSearchDraft,
+                  braveApiKey: event.target.value,
+                })
+              }
+            />
+            <div className="-mt-1 flex items-center justify-between gap-3 text-xs text-[var(--color-text-tertiary)]">
+              <span>{t('settings.general.webSearchBraveFreeHint')}</span>
+              <a
+                href="https://api-dashboard.search.brave.com/app/keys"
+                target="_blank"
+                rel="noreferrer"
+                aria-label={t('settings.general.webSearchBraveApiKeyLink')}
+                className="font-medium text-[var(--color-brand)] hover:underline whitespace-nowrap"
+              >
+                {t('settings.general.webSearchGetApiKey')}
+              </a>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-col gap-3">
+            <p className="text-xs text-[var(--color-text-tertiary)] leading-5">
+              {t('settings.general.webSearchHint')}
+            </p>
+            <div className="flex justify-end">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="min-w-[72px] px-4 whitespace-nowrap"
+                disabled={!webSearchDirty}
+                onClick={() => void setWebSearch(webSearchDraft)}
+              >
+                {t('settings.general.webSearchSave')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8">
         <section aria-labelledby="general-h5-access-title" role="region">
           <h2
             id="general-h5-access-title"
@@ -1725,8 +1852,9 @@ function GeneralSettings() {
                 checked={h5Access.enabled}
                 onChange={(event) => void handleH5AccessToggle(event.target.checked)}
                 disabled={h5ActionRunning}
-                className="mt-0.5 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-brand)] focus:ring-[var(--color-brand)]"
+                className="peer sr-only"
               />
+              <SettingsCheckboxMark checked={h5Access.enabled} disabled={h5ActionRunning} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-[var(--color-text-primary)]">
                   {t('settings.general.h5AccessEnabled')}
@@ -1860,122 +1988,24 @@ function GeneralSettings() {
           </div>
         </section>
       </div>
-
-      <div className="mt-8">
-        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webFetchPreflightTitle')}</h2>
-        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.webFetchPreflightDescription')}</p>
-        <label className="flex items-start gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
-          <input
-            type="checkbox"
-            aria-label={t('settings.general.webFetchPreflightEnabled')}
-            checked={skipWebFetchPreflight}
-            onChange={(e) => void setSkipWebFetchPreflight(e.target.checked)}
-            className="mt-0.5 h-4 w-4 rounded border-[var(--color-border)] text-[var(--color-brand)] focus:ring-[var(--color-brand)]"
-          />
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-[var(--color-text-primary)]">
-              {t('settings.general.webFetchPreflightEnabled')}
-            </div>
-            <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
-              {t('settings.general.webFetchPreflightHint')}
-            </div>
-          </div>
-        </label>
-      </div>
-
-      <div className="mt-8">
-        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webSearchTitle')}</h2>
-        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.webSearchDescription')}</p>
-        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-4">
-          <div className="grid grid-cols-5 gap-1.5 mb-4">
-            {WEB_SEARCH_MODES.map(({ value, label }) => (
-              <button
-                key={value}
-                onClick={() => setWebSearchDraft({ ...webSearchDraft, mode: value })}
-                className={`h-9 px-2 text-xs font-semibold rounded-lg border transition-all truncate ${
-                  (webSearchDraft.mode ?? 'auto') === value
-                    ? 'bg-[var(--color-brand)] text-white border-[var(--color-brand)]'
-                    : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                }`}
-                title={label}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="grid grid-cols-1 gap-3">
-            <Input
-              id="web-search-tavily-key"
-              type="password"
-              label={t('settings.general.webSearchTavilyKey')}
-              value={webSearchDraft.tavilyApiKey ?? ''}
-              placeholder="tvly-..."
-              autoComplete="off"
-              onChange={(event) =>
-                setWebSearchDraft({
-                  ...webSearchDraft,
-                  tavilyApiKey: event.target.value,
-                })
-              }
-            />
-            <div className="-mt-1 flex items-center justify-between gap-3 text-xs text-[var(--color-text-tertiary)]">
-              <span>{t('settings.general.webSearchTavilyFreeHint')}</span>
-              <a
-                href="https://app.tavily.com/home"
-                target="_blank"
-                rel="noreferrer"
-                aria-label={t('settings.general.webSearchTavilyApiKeyLink')}
-                className="font-medium text-[var(--color-brand)] hover:underline whitespace-nowrap"
-              >
-                {t('settings.general.webSearchGetApiKey')}
-              </a>
-            </div>
-            <Input
-              id="web-search-brave-key"
-              type="password"
-              label={t('settings.general.webSearchBraveKey')}
-              value={webSearchDraft.braveApiKey ?? ''}
-              placeholder={t('settings.general.webSearchBravePlaceholder')}
-              autoComplete="off"
-              onChange={(event) =>
-                setWebSearchDraft({
-                  ...webSearchDraft,
-                  braveApiKey: event.target.value,
-                })
-              }
-            />
-            <div className="-mt-1 flex items-center justify-between gap-3 text-xs text-[var(--color-text-tertiary)]">
-              <span>{t('settings.general.webSearchBraveFreeHint')}</span>
-              <a
-                href="https://api-dashboard.search.brave.com/app/keys"
-                target="_blank"
-                rel="noreferrer"
-                aria-label={t('settings.general.webSearchBraveApiKeyLink')}
-                className="font-medium text-[var(--color-brand)] hover:underline whitespace-nowrap"
-              >
-                {t('settings.general.webSearchGetApiKey')}
-              </a>
-            </div>
-          </div>
-          <div className="mt-4 flex flex-col gap-3">
-            <p className="text-xs text-[var(--color-text-tertiary)] leading-5">
-              {t('settings.general.webSearchHint')}
-            </p>
-            <div className="flex justify-end">
-              <Button
-                size="sm"
-                variant="secondary"
-                className="min-w-[72px] px-4 whitespace-nowrap"
-                disabled={!webSearchDirty}
-                onClick={() => void setWebSearch(webSearchDraft)}
-              >
-                {t('settings.general.webSearchSave')}
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
+  )
+}
+
+function SettingsCheckboxMark({ checked, disabled = false }: { checked: boolean; disabled?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--color-brand)]/40 ${
+        checked
+          ? 'border-[var(--color-brand)] bg-[var(--color-brand)] text-white shadow-[var(--shadow-button-primary)]'
+          : 'border-[var(--color-border-focus)] bg-[var(--color-surface)] text-transparent'
+      } ${disabled ? 'opacity-50' : ''}`}
+    >
+      <span className="material-symbols-outlined text-[16px] leading-none" style={{ fontVariationSettings: "'FILL' 1" }}>
+        check
+      </span>
+    </span>
   )
 }
 

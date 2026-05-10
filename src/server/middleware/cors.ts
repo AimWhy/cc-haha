@@ -35,7 +35,10 @@ export type CorsResolution = {
   headers: Record<string, string>
 }
 
-export async function resolveCors(origin?: string | null): Promise<CorsResolution> {
+export async function resolveCors(
+  origin?: string | null,
+  requestOrigin?: string | null,
+): Promise<CorsResolution> {
   if (!origin) {
     return {
       allowed: true,
@@ -49,6 +52,17 @@ export async function resolveCors(origin?: string | null): Promise<CorsResolutio
       allowed: true,
       rejected: false,
       headers: corsHeaders(origin),
+    }
+  }
+
+  if (requestOrigin && origin === requestOrigin) {
+    return {
+      allowed: true,
+      rejected: false,
+      headers: {
+        ...baseCorsHeaders(),
+        'Access-Control-Allow-Origin': origin,
+      },
     }
   }
 

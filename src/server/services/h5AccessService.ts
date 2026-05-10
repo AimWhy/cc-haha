@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
+import os from 'node:os'
 import { ApiError } from '../middleware/errorHandler.js'
 import { ManagedSettingsService } from './managedSettingsService.js'
+import { ProviderService } from './providerService.js'
 
 export type H5AccessSettings = {
   enabled: boolean
@@ -37,7 +39,7 @@ function toPublicSettings(settings: StoredH5AccessSettings): H5AccessSettings {
     enabled: settings.enabled,
     tokenPreview: settings.tokenPreview,
     allowedOrigins: settings.allowedOrigins,
-    publicBaseUrl: settings.publicBaseUrl,
+    publicBaseUrl: settings.publicBaseUrl ?? (settings.enabled ? resolveAutoPublicBaseUrl() : null),
   }
 }
 
@@ -117,6 +119,55 @@ function normalizePublicBaseUrl(input: unknown): string | null {
 
   const normalizedPath = parsed.pathname.replace(/\/+$/, '')
   return `${parsed.origin}${normalizedPath === '/' ? '' : normalizedPath}`
+}
+
+function resolveAutoPublicBaseUrl(): string | null {
+  const configured = process.env.CLAUDE_H5_PUBLIC_BASE_URL
+  if (configured) {
+    try {
+      return normalizePublicBaseUrl(configured)
+    } catch {
+      return null
+    }
+  }
+
+  if (process.env.CLAUDE_H5_AUTO_PUBLIC_URL !== '1') {
+    return null
+  }
+
+  const host = findPrivateLanAddress()
+  if (!host) {
+    return null
+  }
+
+  return `http://${host}:${ProviderService.getServerPort()}`
+}
+
+function findPrivateLanAddress(): string | null {
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal || !isPrivateIPv4(entry.address)) {
+        continue
+      }
+      return entry.address
+    }
+  }
+  return null
+}
+
+function isPrivateIPv4(address: string): boolean {
+  const parts = address.split('.')
+  if (parts.length !== 4 || !parts.every((part) => /^\d+$/.test(part))) {
+    return false
+  }
+
+  const [a = -1, b = -1] = parts.map((part) => Number(part))
+  return (
+    a === 10 ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    (a === 169 && b === 254)
+  )
 }
 
 function normalizeStoredSettings(value: unknown): StoredH5AccessSettings {

@@ -19,6 +19,7 @@ import { ensureDesktopCliLauncherInstalled } from './services/desktopCliLauncher
 import { enableConfigs } from '../utils/config.js'
 import { diagnosticsService } from './services/diagnosticsService.js'
 import { ensurePersistentStorageUpgraded } from './services/persistentStorageMigrations.js'
+import { handleStaticH5Request } from './staticH5.js'
 
 function readArgValue(flag: string): string | undefined {
   const args = process.argv.slice(2)
@@ -144,7 +145,7 @@ export function startServer(port = PORT, host = HOST) {
       await ensurePersistentStorageUpgraded()
       const url = new URL(req.url)
       const origin = req.headers.get('Origin')
-      const cors = await resolveCors(origin)
+      const cors = await resolveCors(origin, url.origin)
       const authRequired = forceAuth || (
         remoteHostAuthRequired &&
         !canBypassRemoteAuthForLocalBrowser(origin, url.hostname)
@@ -291,6 +292,11 @@ export function startServer(port = PORT, host = HOST) {
           { status: 'ok', timestamp: new Date().toISOString() },
           { headers: cors.headers },
         )
+      }
+
+      const staticResponse = await handleStaticH5Request(req, url)
+      if (staticResponse) {
+        return staticResponse
       }
 
       return new Response('Not Found', { status: 404 })
