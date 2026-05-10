@@ -28,6 +28,7 @@ type SettingsStore = {
   skipWebFetchPreflight: boolean
   desktopNotificationsEnabled: boolean
   webSearch: WebSearchSettings
+  responseLanguage: string
   isLoading: boolean
   error: string | null
 
@@ -41,6 +42,7 @@ type SettingsStore = {
   setSkipWebFetchPreflight: (enabled: boolean) => Promise<void>
   setDesktopNotificationsEnabled: (enabled: boolean) => Promise<void>
   setWebSearch: (settings: WebSearchSettings) => Promise<void>
+  setResponseLanguage: (language: string) => Promise<void>
 }
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
@@ -55,6 +57,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   skipWebFetchPreflight: true,
   desktopNotificationsEnabled: false,
   webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
+  responseLanguage: '',
   isLoading: false,
   error: null,
 
@@ -81,6 +84,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         skipWebFetchPreflight: userSettings.skipWebFetchPreflight !== false,
         desktopNotificationsEnabled: userSettings.desktopNotificationsEnabled === true,
         webSearch: normalizeWebSearchSettings(userSettings.webSearch),
+        responseLanguage: typeof userSettings.language === 'string' ? userSettings.language : '',
         isLoading: false,
         error: null,
       })
@@ -184,6 +188,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await settingsApi.updateUser({ webSearch: next })
     } catch {
       set({ webSearch: prev })
+    }
+  },
+
+  setResponseLanguage: async (language) => {
+    const prev = get().responseLanguage
+    set({ responseLanguage: language })
+    try {
+      await settingsApi.updateUser({ language: language || undefined })
+    } catch {
+      set({ responseLanguage: prev })
     }
   },
 }))
