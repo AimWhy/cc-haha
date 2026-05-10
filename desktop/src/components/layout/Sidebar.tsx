@@ -45,9 +45,10 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   }, [fetchSessions])
 
   useEffect(() => {
-    if (!contextMenu || sidebarOpen) return
-    setContextMenu(null)
-  }, [contextMenu, sidebarOpen])
+    if (!contextMenu) return
+    if (!sidebarOpen) setContextMenu(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidebarOpen])
 
   useEffect(() => {
     if (!contextMenu) return
@@ -116,6 +117,7 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   }, [])
 
   const handleSidebarDrag = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
     if ((e.target as HTMLElement).closest('button, input, textarea, select, a, [role="button"]')) return
     startDraggingRef.current?.()
   }, [])
@@ -379,7 +381,7 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
         </div>
       )}
 
-      {contextMenu && sidebarOpen && (
+      {contextMenu && (
         <div
           className="fixed z-50 min-w-[140px] rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] py-1"
           style={{ left: contextMenu.x, top: contextMenu.y, boxShadow: 'var(--shadow-dropdown)' }}
