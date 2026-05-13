@@ -54,6 +54,11 @@ export const en = {
   'titlebar.terminal': 'Terminal',
   'titlebar.history': 'History',
 
+  // ─── Open Project ──────────────────────────────────────
+  'openProject.openProject': 'Open project',
+  'openProject.openIn': 'Open in {target}',
+  'openProject.openFailed': 'Could not open project',
+
   // ─── Workspace Panel ───────────────────────────────
   'workspace.changedFiles': 'Changed files',
   'workspace.allFiles': 'All files',

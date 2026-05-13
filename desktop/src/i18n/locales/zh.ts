@@ -56,6 +56,11 @@ export const zh: Record<TranslationKey, string> = {
   'titlebar.terminal': '终端',
   'titlebar.history': '历史',
 
+  // ─── Open Project ──────────────────────────────────────
+  'openProject.openProject': '打开项目',
+  'openProject.openIn': '用 {target} 打开',
+  'openProject.openFailed': '无法打开项目',
+
   // ─── Workspace Panel ───────────────────────────────
   'workspace.changedFiles': '已更改文件',
   'workspace.allFiles': '所有文件',

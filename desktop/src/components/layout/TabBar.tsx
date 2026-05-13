@@ -7,10 +7,12 @@ import {
   type Tab,
 } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
+import { useSessionStore } from '../../stores/sessionStore'
 import { useWorkspacePanelStore } from '../../stores/workspacePanelStore'
 import { useTerminalPanelStore } from '../../stores/terminalPanelStore'
 import { useTranslation } from '../../i18n'
 import { WindowControls, showWindowControls } from './WindowControls'
+import { OpenProjectMenu } from './OpenProjectMenu'
 import { Folder, FolderOpen, SquareTerminal } from 'lucide-react'
 
 const TAB_WIDTH = 180
@@ -40,6 +42,12 @@ export function TabBar() {
   const disconnectSession = useChatStore((s) => s.disconnectSession)
   const activeTab = tabs.find((tab) => tab.sessionId === activeTabId) ?? null
   const isActiveSessionTab = isSessionTab(activeTab) || isSessionTabId(activeTabId)
+  const activeSession = useSessionStore((state) =>
+    activeTabId ? state.sessions.find((session) => session.id === activeTabId) : undefined,
+  )
+  const openProjectPath = isActiveSessionTab && activeSession?.workDirExists !== false
+    ? activeSession?.workDir ?? null
+    : null
   const isWorkspacePanelOpen = useWorkspacePanelStore((state) =>
     activeTabId && isActiveSessionTab ? state.isPanelOpen(activeTabId) : false,
   )
@@ -319,6 +327,9 @@ export function TabBar() {
       </div>
 
       <div className="flex shrink-0 items-center gap-1 border-l border-[var(--color-border)]/70 px-2">
+        {isTauri && isActiveSessionTab && (
+          <OpenProjectMenu path={openProjectPath} />
+        )}
         <ToolbarIconButton
           icon={<SquareTerminal size={17} strokeWidth={1.9} />}
           label={t('tabs.openTerminal')}
