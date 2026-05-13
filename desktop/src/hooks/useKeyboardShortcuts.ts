@@ -3,6 +3,13 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useChatStore } from '../stores/chatStore'
 import { useTabStore } from '../stores/tabStore'
 import { useUIStore } from '../stores/uiStore'
+import {
+  applyAppZoomLevel,
+  getAppZoomKeyboardAction,
+  initializeAppZoom,
+  nextAppZoomLevel,
+  readStoredAppZoomLevel,
+} from '../lib/appZoom'
 
 export function useKeyboardShortcuts() {
   const setActiveSession = useSessionStore((s) => s.setActiveSession)
@@ -20,9 +27,21 @@ export function useKeyboardShortcuts() {
   chatStateRef.current = chatState
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
+  const appZoomLevelRef = useRef(readStoredAppZoomLevel())
 
   useEffect(() => {
+    void initializeAppZoom()
+
     const handler = (e: KeyboardEvent) => {
+      const zoomAction = getAppZoomKeyboardAction(e)
+      if (zoomAction) {
+        e.preventDefault()
+        const nextZoom = nextAppZoomLevel(appZoomLevelRef.current, zoomAction)
+        appZoomLevelRef.current = nextZoom
+        void applyAppZoomLevel(nextZoom)
+        return
+      }
+
       const meta = e.metaKey || e.ctrlKey
 
       // Cmd+N — New session
