@@ -148,7 +148,11 @@
   --color-inverse-primary: #FFB59D;
 
   --color-success: #16A34A;
+  --color-success-container: #E8F5E2;
+  --color-info: #2D628F;
+  --color-info-container: #E4F1FF;
   --color-warning: #CA8A04;
+  --color-warning-container: #FFF3D6;
 
   --font-headline: 'Manrope', sans-serif;
   --font-body: 'Inter', sans-serif;
@@ -175,6 +179,22 @@
   --color-surface-selected: var(--color-surface-container);
   --color-model-option-selected-bg: var(--color-primary-fixed);
   --color-model-option-selected-border: rgba(143, 72, 47, 0.2);
+  --color-activity-heat-0: var(--color-surface-container);
+  --color-activity-heat-1: #FFE6DE;
+  --color-activity-heat-2: #FFBCA8;
+  --color-activity-heat-3: #E57A58;
+  --color-activity-heat-4: #8F482F;
+  --color-activity-cell-border: rgba(135, 115, 109, 0.3);
+  --color-activity-cell-border-hover: rgba(84, 67, 62, 0.72);
+  --color-activity-cell-border-active: var(--color-text-primary);
+  --color-activity-tooltip-surface: #2F312E;
+  --color-activity-tooltip-border: rgba(255, 255, 255, 0.12);
+  --color-activity-tooltip-text: #F2F1ED;
+  --color-activity-tooltip-muted: #FFB59D;
+  --color-success-container: #E8F5E2;
+  --color-info: #2D628F;
+  --color-info-container: #E4F1FF;
+  --color-warning-container: #FFF3D6;
   --color-inspector-surface: #FBFAF6;
   --color-inspector-panel: #F4F2ED;
   --color-inspector-chip: #EBE7DF;
@@ -335,13 +355,29 @@
   --color-inverse-primary: #FFB59D;
 
   --color-success: #087E4F;
+  --color-success-container: #DCFAE6;
+  --color-info: #0F5C8F;
+  --color-info-container: #D9ECFF;
   --color-warning: #B54708;
+  --color-warning-container: #FEF0C7;
 
   --color-surface-sidebar: #F1F4F7;
   --color-surface-hover: #F2F5F8;
   --color-surface-selected: #E9EEF3;
   --color-model-option-selected-bg: #FFF0EA;
   --color-model-option-selected-border: rgba(143, 72, 47, 0.2);
+  --color-activity-heat-0: #EEF2F6;
+  --color-activity-heat-1: #FFE9E1;
+  --color-activity-heat-2: #FFC4B1;
+  --color-activity-heat-3: #E57A58;
+  --color-activity-heat-4: #8F482F;
+  --color-activity-cell-border: rgba(139, 152, 167, 0.32);
+  --color-activity-cell-border-hover: rgba(75, 85, 99, 0.72);
+  --color-activity-cell-border-active: var(--color-text-primary);
+  --color-activity-tooltip-surface: #111827;
+  --color-activity-tooltip-border: rgba(255, 255, 255, 0.14);
+  --color-activity-tooltip-text: #F9FAFB;
+  --color-activity-tooltip-muted: #FFC4B1;
   --color-inspector-surface: #FFFFFF;
   --color-inspector-panel: #F7F9FB;
   --color-inspector-chip: #EEF3F6;
@@ -483,13 +519,29 @@
   --color-inverse-primary: #8F482F;
 
   --color-success: #7EDB8B;
+  --color-success-container: rgba(126, 219, 139, 0.16);
+  --color-info: #74E0F7;
+  --color-info-container: rgba(116, 224, 247, 0.16);
   --color-warning: #F7C46C;
+  --color-warning-container: rgba(247, 196, 108, 0.16);
 
   --color-surface-sidebar: #171615;
   --color-surface-hover: var(--color-surface-container-highest);
   --color-surface-selected: var(--color-surface-container);
   --color-model-option-selected-bg: rgba(255, 181, 159, 0.13);
   --color-model-option-selected-border: rgba(255, 181, 159, 0.34);
+  --color-activity-heat-0: #242322;
+  --color-activity-heat-1: #4A2B24;
+  --color-activity-heat-2: #85432F;
+  --color-activity-heat-3: #C85F3C;
+  --color-activity-heat-4: #FF8A5C;
+  --color-activity-cell-border: rgba(229, 226, 225, 0.08);
+  --color-activity-cell-border-hover: rgba(255, 181, 159, 0.48);
+  --color-activity-cell-border-active: #FBE7E1;
+  --color-activity-tooltip-surface: #F2F1ED;
+  --color-activity-tooltip-border: rgba(255, 181, 159, 0.32);
+  --color-activity-tooltip-text: #1B1C1A;
+  --color-activity-tooltip-muted: #8F3217;
   --color-inspector-surface: #131211;
   --color-inspector-panel: #1C1B1B;
   --color-inspector-chip: #252120;
