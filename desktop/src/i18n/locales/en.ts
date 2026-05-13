@@ -563,6 +563,12 @@ export const en = {
   'settings.memory.revert': 'Revert',
   'settings.memory.invalidPath': 'Use a relative .md path without .. segments.',
   'settings.memory.fileExists': 'A memory file already exists at that path.',
+  'settings.memory.projectSearchPlaceholder': 'Search projects by path...',
+  'settings.memory.fileSearchPlaceholder': 'Search memory files...',
+  'settings.memory.noProjectMatches': 'No projects match this search.',
+  'settings.memory.noFileMatches': 'No memory files match this search.',
+  'settings.memory.createMemoryFile': 'Create memory file',
+  'settings.memory.clearSearch': 'Clear search',
 
   // Settings > Plugins
   'settings.plugins.title': 'Installed Plugins',

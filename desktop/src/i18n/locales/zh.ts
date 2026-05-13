@@ -565,6 +565,12 @@ export const zh: Record<TranslationKey, string> = {
   'settings.memory.revert': '还原',
   'settings.memory.invalidPath': '请使用相对 .md 路径，且不能包含 .. 片段。',
   'settings.memory.fileExists': '该路径下已经有记忆文件。',
+  'settings.memory.projectSearchPlaceholder': '按路径搜索项目...',
+  'settings.memory.fileSearchPlaceholder': '搜索记忆文件...',
+  'settings.memory.noProjectMatches': '没有匹配的项目。',
+  'settings.memory.noFileMatches': '没有匹配的记忆文件。',
+  'settings.memory.createMemoryFile': '创建记忆文件',
+  'settings.memory.clearSearch': '清空搜索',
 
   // Settings > Plugins
   'settings.plugins.title': '已安装插件',

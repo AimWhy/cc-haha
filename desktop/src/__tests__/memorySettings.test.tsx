@@ -162,7 +162,7 @@ describe('MemorySettings', () => {
 
     const pathInput = await screen.findByPlaceholderText('MEMORY.md or notes/project.md')
     fireEvent.change(pathInput, { target: { value: 'notes/team.md' } })
-    fireEvent.click(screen.getByRole('button', { name: /new/i }))
+    fireEvent.click(screen.getByRole('button', { name: /create memory file/i }))
 
     await waitFor(() => {
       expect(memoryApiMock.saveFile).toHaveBeenCalledWith({
@@ -171,6 +171,62 @@ describe('MemorySettings', () => {
         content: expect.stringContaining('type: project'),
       })
     })
+  })
+
+  it('filters projects by path so large memory lists are navigable', async () => {
+    memoryApiMock.listProjects.mockResolvedValue({
+      projects: [
+        {
+          id: '-workspace-alpha',
+          label: '/workspace/alpha',
+          memoryDir: '/tmp/claude/projects/-workspace-alpha/memory',
+          exists: true,
+          fileCount: 1,
+          isCurrent: true,
+        },
+        {
+          id: '-workspace-beta',
+          label: '/workspace/beta',
+          memoryDir: '/tmp/claude/projects/-workspace-beta/memory',
+          exists: true,
+          fileCount: 2,
+          isCurrent: false,
+        },
+      ],
+    })
+
+    render(<MemorySettings />)
+
+    expect(await screen.findByText('workspace/alpha')).toBeInTheDocument()
+    expect(await screen.findByText('workspace/beta')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search projects by path...'), {
+      target: { value: 'beta' },
+    })
+
+    expect(screen.queryByText('workspace/alpha')).not.toBeInTheDocument()
+    expect(screen.getByText('workspace/beta')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(useMemoryStore.getState().selectedProjectId).toBe('-workspace-beta')
+    })
+  })
+
+  it('keeps frontmatter editable but removes it from the rendered preview', async () => {
+    memoryApiMock.readFile.mockResolvedValue({
+      file: {
+        path: 'MEMORY.md',
+        content: '---\ntype: project\n---\n\n# Project Memory\n',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+        bytes: 39,
+      },
+    })
+
+    render(<MemorySettings />)
+
+    const editor = await screen.findByLabelText('Editor')
+    expect(editor).toHaveValue('---\ntype: project\n---\n\n# Project Memory\n')
+    expect(screen.getByTestId('markdown-preview')).toHaveTextContent('Project Memory')
+    expect(screen.getByTestId('markdown-preview')).not.toHaveTextContent('type: project')
   })
 
   it('opens the exact memory file requested from chat', async () => {

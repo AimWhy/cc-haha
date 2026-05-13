@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { FileText, Plus, Search, X } from 'lucide-react'
 import { Button } from '../components/shared/Button'
-import { Input } from '../components/shared/Input'
 import { MarkdownRenderer } from '../components/markdown/MarkdownRenderer'
 import { useTranslation } from '../i18n'
 import { formatBytes } from '../lib/formatBytes'
@@ -39,6 +39,8 @@ export function MemorySettings() {
   const setPendingMemoryPath = useUIStore((s) => s.setPendingMemoryPath)
   const [newPath, setNewPath] = useState('')
   const [newPathError, setNewPathError] = useState<string | null>(null)
+  const [projectQuery, setProjectQuery] = useState('')
+  const [fileQuery, setFileQuery] = useState('')
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -47,6 +49,15 @@ export function MemorySettings() {
   const activeCwd = activeSession?.workDir || activeSession?.projectPath || undefined
   const selectedProject = projects.find((project) => project.id === selectedProjectId) ?? null
   const isDirty = Boolean(selectedFile && draftContent !== selectedFile.content)
+  const filteredProjects = useMemo(
+    () => filterProjects(projects, projectQuery),
+    [projectQuery, projects],
+  )
+  const filteredFiles = useMemo(
+    () => filterFiles(files, fileQuery),
+    [fileQuery, files],
+  )
+  const previewContent = stripMarkdownFrontmatter(draftContent)
 
   useEffect(() => {
     void fetchProjects(activeCwd)
@@ -56,6 +67,12 @@ export function MemorySettings() {
     if (!selectedProjectId) return
     void fetchFiles(selectedProjectId)
   }, [fetchFiles, selectedProjectId])
+
+  useEffect(() => {
+    if (!projectQuery.trim() || filteredProjects.length === 0) return
+    if (selectedProjectId && filteredProjects.some((project) => project.id === selectedProjectId)) return
+    selectProject(filteredProjects[0]!.id)
+  }, [filteredProjects, projectQuery, selectProject, selectedProjectId])
 
   useEffect(() => {
     if (!selectedProjectId || selectedFile || isLoadingFiles || isLoadingFile) return
@@ -158,18 +175,29 @@ export function MemorySettings() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="grid min-h-0 content-start gap-4">
           <section className="min-h-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)]">
             <PanelHeader
               title={t('settings.memory.projects')}
               meta={isLoadingProjects ? t('common.loading') : String(projects.length)}
             />
-            <div className="max-h-[240px] overflow-y-auto p-2">
+            <div className="border-b border-[var(--color-border)] p-3">
+              <SearchField
+                value={projectQuery}
+                onChange={setProjectQuery}
+                placeholder={t('settings.memory.projectSearchPlaceholder')}
+                ariaLabel={t('settings.memory.projectSearchPlaceholder')}
+                clearLabel={t('settings.memory.clearSearch')}
+              />
+            </div>
+            <div className="max-h-[320px] overflow-y-auto p-2">
               {projects.length === 0 && !isLoadingProjects ? (
                 <EmptyState text={t('settings.memory.emptyProjects')} />
+              ) : filteredProjects.length === 0 ? (
+                <EmptyState text={t('settings.memory.noProjectMatches')} />
               ) : (
-                projects.map((project) => (
+                filteredProjects.map((project) => (
                   <ProjectRow
                     key={project.id}
                     project={project}
@@ -186,38 +214,39 @@ export function MemorySettings() {
               title={t('settings.memory.files')}
               meta={isLoadingFiles ? t('common.loading') : `${files.length}`}
             />
-            <div className="border-b border-[var(--color-border)] p-3">
-              <div className="flex gap-2">
-                <Input
-                  value={newPath}
-                  onChange={(event) => {
-                    setNewPath(event.target.value)
-                    setNewPathError(null)
-                  }}
-                  placeholder={t('settings.memory.newPathPlaceholder')}
-                  className="min-w-0 flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  disabled={!selectedProjectId}
-                  loading={isSaving && !selectedFile}
-                  onClick={handleCreate}
-                  icon={<span className="material-symbols-outlined text-[16px]">add</span>}
-                >
-                  {t('settings.memory.newFile')}
-                </Button>
-              </div>
+            <div className="grid gap-3 border-b border-[var(--color-border)] p-3">
+              <CreateFileControl
+                value={newPath}
+                onChange={(value) => {
+                  setNewPath(value)
+                  setNewPathError(null)
+                }}
+                onCreate={handleCreate}
+                disabled={!selectedProjectId}
+                loading={isSaving && !selectedFile}
+                placeholder={t('settings.memory.newPathPlaceholder')}
+                label={t('settings.memory.createMemoryFile')}
+              />
               {newPathError && (
                 <p className="mt-2 text-xs text-[var(--color-error)]">{newPathError}</p>
               )}
+              {files.length > 3 ? (
+                <SearchField
+                  value={fileQuery}
+                  onChange={setFileQuery}
+                  placeholder={t('settings.memory.fileSearchPlaceholder')}
+                  ariaLabel={t('settings.memory.fileSearchPlaceholder')}
+                  clearLabel={t('settings.memory.clearSearch')}
+                />
+              ) : null}
             </div>
-            <div className="max-h-[360px] overflow-y-auto p-2">
+            <div className="max-h-[420px] overflow-y-auto p-2">
               {files.length === 0 && !isLoadingFiles ? (
                 <EmptyState text={t('settings.memory.emptyFiles')} />
+              ) : filteredFiles.length === 0 ? (
+                <EmptyState text={t('settings.memory.noFileMatches')} />
               ) : (
-                files.map((file) => (
+                filteredFiles.map((file) => (
                   <FileRow
                     key={file.path}
                     file={file}
@@ -230,11 +259,11 @@ export function MemorySettings() {
           </section>
         </div>
 
-        <section className="min-h-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)]">
+        <section className="min-h-0 overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] shadow-[0_12px_36px_rgba(15,23,42,0.04)]">
           <div className="flex flex-col gap-3 border-b border-[var(--color-border)] p-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h3 className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                <h3 className="truncate text-base font-semibold text-[var(--color-text-primary)]">
                   {selectedFile?.path ?? t('settings.memory.noFileSelected')}
                 </h3>
                 {isDirty && <Badge>{t('settings.memory.unsaved')}</Badge>}
@@ -279,7 +308,7 @@ export function MemorySettings() {
                   value={draftContent}
                   onChange={(event) => updateDraft(event.target.value)}
                   spellCheck={false}
-                  className="h-[calc(100%-36px)] w-full resize-none overflow-auto bg-transparent p-4 font-mono text-[13px] leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
+                  className="h-[calc(100%-36px)] w-full resize-none overflow-auto bg-transparent p-5 font-mono text-[13px] leading-6 text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-tertiary)]"
                 />
               </div>
               <div className="min-h-0 overflow-y-auto">
@@ -287,8 +316,8 @@ export function MemorySettings() {
                   <span>{t('settings.memory.preview')}</span>
                   <span>{selectedFile.updatedAt ? formatDate(selectedFile.updatedAt) : ''}</span>
                 </div>
-                <div className="p-4">
-                  <MarkdownRenderer content={draftContent || ' '} variant="document" />
+                <div className="p-6">
+                  <MarkdownRenderer content={previewContent || ' '} variant="document" />
                 </div>
               </div>
             </div>
@@ -299,6 +328,89 @@ export function MemorySettings() {
           )}
         </section>
       </div>
+    </div>
+  )
+}
+
+function SearchField({
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+  clearLabel,
+}: {
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  ariaLabel: string
+  clearLabel: string
+}) {
+  return (
+    <div className="relative">
+      <Search
+        size={15}
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
+        aria-hidden="true"
+      />
+      <input
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] pl-9 pr-9 text-sm text-[var(--color-text-primary)] outline-none transition-colors duration-150 placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-focus)] focus:shadow-[var(--shadow-focus-ring)]"
+      />
+      {value ? (
+        <button
+          type="button"
+          aria-label={clearLabel}
+          onClick={() => onChange('')}
+          className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]"
+        >
+          <X size={14} aria-hidden="true" />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
+function CreateFileControl({
+  value,
+  onChange,
+  onCreate,
+  disabled,
+  loading,
+  placeholder,
+  label,
+}: {
+  value: string
+  onChange: (value: string) => void
+  onCreate: () => void
+  disabled: boolean
+  loading: boolean
+  placeholder: string
+  label: string
+}) {
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)_44px] gap-2">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') onCreate()
+        }}
+        placeholder={placeholder}
+        aria-label={label}
+        className="h-11 min-w-0 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-text-primary)] outline-none transition-colors duration-150 placeholder:text-[var(--color-text-tertiary)] focus:border-[var(--color-border-focus)] focus:shadow-[var(--shadow-focus-ring)]"
+      />
+      <button
+        type="button"
+        aria-label={label}
+        disabled={disabled || loading}
+        onClick={onCreate}
+        className="flex h-11 w-11 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-primary)] transition-colors duration-150 hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <Plus size={18} aria-hidden="true" />
+      </button>
     </div>
   )
 }
@@ -322,21 +434,24 @@ function ProjectRow({
   onSelect: () => void
 }) {
   const t = useTranslation()
+  const display = projectDisplayName(project.label)
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`mb-1 w-full rounded-[var(--radius-md)] px-3 py-2 text-left transition-colors ${
+      title={project.label}
+      className={`mb-1 w-full rounded-[var(--radius-md)] px-3 py-2.5 text-left transition-colors ${
         active
-          ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+          ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)] shadow-[inset_3px_0_0_var(--color-brand)]'
+          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-sm font-medium">{project.label}</span>
+        <span className="min-w-0 truncate text-sm font-semibold">{display}</span>
         {project.isCurrent && <Badge>{t('settings.memory.current')}</Badge>}
       </div>
-      <div className="mt-1 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
+      <p className="mt-1 truncate text-xs text-[var(--color-text-tertiary)]">{project.label}</p>
+      <div className="mt-1.5 flex items-center gap-2 text-xs text-[var(--color-text-tertiary)]">
         <span>{t('settings.memory.fileCount', { count: project.fileCount })}</span>
       </div>
     </button>
@@ -356,14 +471,17 @@ function FileRow({
     <button
       type="button"
       onClick={onSelect}
-      className={`mb-1 w-full rounded-[var(--radius-md)] px-3 py-2 text-left transition-colors ${
+      className={`mb-1 w-full rounded-[var(--radius-md)] px-3 py-2.5 text-left transition-colors ${
         active
-          ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+          ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)] shadow-[inset_3px_0_0_var(--color-brand)]'
+          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate text-sm font-medium">{file.title}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <FileText size={14} className="shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+          <span className="min-w-0 truncate text-sm font-semibold">{file.title}</span>
+        </span>
         {file.type && <Badge>{file.type}</Badge>}
       </div>
       <p className="mt-1 truncate text-xs text-[var(--color-text-tertiary)]">{file.path}</p>
@@ -394,6 +512,41 @@ function EmptyState({ text }: { text: string }) {
 
 function normalizeMemoryPath(value: string): string {
   return value.trim().replace(/\\/g, '/').replace(/^\/+/, '')
+}
+
+function normalizeSearch(value: string): string {
+  return value.toLowerCase().replace(/\\/g, '/').replace(/\/+/g, '/').trim()
+}
+
+function filterProjects(projects: MemoryProject[], query: string): MemoryProject[] {
+  const normalized = normalizeSearch(query)
+  if (!normalized) return projects
+  return projects.filter((project) =>
+    normalizeSearch(`${project.label} ${project.memoryDir} ${project.id}`).includes(normalized),
+  )
+}
+
+function filterFiles(files: MemoryFile[], query: string): MemoryFile[] {
+  const normalized = normalizeSearch(query)
+  if (!normalized) return files
+  return files.filter((file) =>
+    normalizeSearch(`${file.title} ${file.path} ${file.description ?? ''} ${file.type ?? ''}`).includes(normalized),
+  )
+}
+
+function projectDisplayName(label: string): string {
+  const normalized = label.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '')
+  const parts = normalized.split('/').filter(Boolean)
+  if (parts.length >= 2) return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
+  return parts[0] ?? label
+}
+
+function stripMarkdownFrontmatter(content: string): string {
+  if (!content.startsWith('---')) return content
+  const end = content.indexOf('\n---', 3)
+  if (end < 0) return content
+  const after = content.indexOf('\n', end + 4)
+  return after < 0 ? '' : content.slice(after + 1).trimStart()
 }
 
 function normalizeFsPath(value: string): string {
