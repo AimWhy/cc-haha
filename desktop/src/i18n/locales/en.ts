@@ -24,6 +24,7 @@ export const en = {
   'sidebar.noSessions': 'No sessions yet',
   'sidebar.noMatching': 'No matching sessions',
   'sidebar.sessionListFailed': 'Session list failed to load',
+  'sidebar.refreshSessions': 'Refresh sessions',
   'sidebar.missingDir': 'missing dir',
   'sidebar.confirmDelete': 'Delete this session? This cannot be undone.',
   'sidebar.batchManage': 'Batch manage',

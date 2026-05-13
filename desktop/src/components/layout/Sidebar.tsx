@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { RefreshCw } from 'lucide-react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
@@ -10,6 +11,8 @@ import { useChatStore } from '../../stores/chatStore'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
+const SESSION_LIST_AUTO_REFRESH_MS = 30_000
+const SESSION_LIST_FOCUS_REFRESH_MIN_MS = 5_000
 
 type TimeGroup = 'today' | 'yesterday' | 'last7days' | 'last30days' | 'older'
 
@@ -51,10 +54,7 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [lastSelectedSessionId, setLastSelectedSessionId] = useState<string | null>(null)
-
-  useEffect(() => {
-    fetchSessions()
-  }, [fetchSessions])
+  const refreshSessionsNow = useSessionListAutoRefresh(fetchSessions)
 
   useEffect(() => {
     if (!contextMenu) return
@@ -378,6 +378,16 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
               </div>
               <button
                 type="button"
+                onClick={() => void refreshSessionsNow()}
+                disabled={isLoading}
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[12px] border border-[var(--color-sidebar-search-border)] bg-[var(--color-sidebar-search-bg)] text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-sidebar-item-hover)] hover:text-[var(--color-text-primary)] disabled:cursor-default disabled:opacity-65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+                aria-label={t('sidebar.refreshSessions')}
+                title={t('sidebar.refreshSessions')}
+              >
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} strokeWidth={1.9} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
                 onClick={isBatchMode ? handleExitBatchMode : enterBatchMode}
                 className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[12px] border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] ${
                   isBatchMode
@@ -671,6 +681,60 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
       />
     </aside>
   )
+}
+
+function useSessionListAutoRefresh(fetchSessions: () => Promise<void>): () => Promise<void> {
+  const inFlightRef = useRef<Promise<void> | null>(null)
+  const lastStartedAtRef = useRef(0)
+
+  const refreshSessions = useCallback((force = false) => {
+    if (inFlightRef.current) return inFlightRef.current
+
+    const now = Date.now()
+    if (!force && now - lastStartedAtRef.current < SESSION_LIST_FOCUS_REFRESH_MIN_MS) {
+      return Promise.resolve()
+    }
+
+    lastStartedAtRef.current = now
+    const request = Promise.resolve()
+      .then(() => fetchSessions())
+      .catch(() => undefined)
+      .finally(() => {
+        if (inFlightRef.current === request) {
+          inFlightRef.current = null
+        }
+      })
+    inFlightRef.current = request
+    return request
+  }, [fetchSessions])
+
+  useEffect(() => {
+    void refreshSessions(true)
+
+    const refreshIfVisible = () => {
+      if (!isDocumentVisible()) return
+      void refreshSessions()
+    }
+
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+    const timer = window.setInterval(() => {
+      if (!isDocumentVisible()) return
+      void refreshSessions(true)
+    }, SESSION_LIST_AUTO_REFRESH_MS)
+
+    return () => {
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+      window.clearInterval(timer)
+    }
+  }, [refreshSessions])
+
+  return useCallback(() => refreshSessions(true), [refreshSessions])
+}
+
+function isDocumentVisible(): boolean {
+  return typeof document === 'undefined' || document.visibilityState !== 'hidden'
 }
 
 function groupByTime(sessions: SessionListItem[]): Map<TimeGroup, SessionListItem[]> {

@@ -26,6 +26,7 @@ export const zh: Record<TranslationKey, string> = {
   'sidebar.noSessions': '暂无会话',
   'sidebar.noMatching': '没有匹配的会话',
   'sidebar.sessionListFailed': '会话列表加载失败',
+  'sidebar.refreshSessions': '刷新会话列表',
   'sidebar.missingDir': '目录缺失',
   'sidebar.confirmDelete': '确定要删除这个会话吗？此操作不可撤销。',
   'sidebar.batchManage': '批量管理',

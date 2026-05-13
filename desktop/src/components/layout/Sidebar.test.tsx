@@ -16,6 +16,7 @@ vi.mock('../../i18n', () => ({
       'sidebar.noSessions': 'No sessions',
       'sidebar.noMatching': 'No matching sessions',
       'sidebar.sessionListFailed': 'Session list failed',
+      'sidebar.refreshSessions': 'Refresh sessions',
       'common.retry': 'Retry',
       'common.loading': 'Loading...',
       'common.cancel': 'Cancel',
@@ -102,6 +103,7 @@ describe('Sidebar', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     cleanup()
     useTabStore.setState({ tabs: [], activeTabId: null })
   })
@@ -389,5 +391,70 @@ describe('Sidebar', () => {
 
     expect(screen.getByText('Loading...')).toBeInTheDocument()
     expect(screen.queryByText('No sessions')).not.toBeInTheDocument()
+  })
+
+  it('refreshes sessions manually and through low-frequency visible polling', async () => {
+    vi.useFakeTimers()
+
+    render(<Sidebar />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(fetchSessions).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh sessions' }))
+      await Promise.resolve()
+    })
+    expect(fetchSessions).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'))
+      await Promise.resolve()
+    })
+    expect(fetchSessions).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+      await Promise.resolve()
+    })
+    expect(fetchSessions).toHaveBeenCalledTimes(3)
+  })
+
+  it('does not poll for session changes while the document is hidden', async () => {
+    vi.useFakeTimers()
+    const originalVisibility = document.visibilityState
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    })
+
+    render(<Sidebar />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(fetchSessions).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      vi.advanceTimersByTime(30_000)
+      await Promise.resolve()
+    })
+    expect(fetchSessions).toHaveBeenCalledTimes(1)
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    })
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      await Promise.resolve()
+    })
+    expect(fetchSessions).toHaveBeenCalledTimes(2)
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: originalVisibility,
+    })
   })
 })
