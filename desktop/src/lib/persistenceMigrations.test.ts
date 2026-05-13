@@ -65,6 +65,22 @@ describe('desktop persistence migrations', () => {
     expect(window.localStorage.getItem('cc-haha-theme')).toBe('white')
   })
 
+  test('preserves valid app zoom and removes invalid app zoom values', () => {
+    window.localStorage.setItem('cc-haha-app-zoom', '1.2')
+
+    const validReport = runDesktopPersistenceMigrations()
+
+    expect(validReport.migratedKeys).not.toContain('cc-haha-app-zoom')
+    expect(window.localStorage.getItem('cc-haha-app-zoom')).toBe('1.2')
+
+    window.localStorage.setItem('cc-haha-app-zoom', '4')
+
+    const invalidReport = runDesktopPersistenceMigrations()
+
+    expect(invalidReport.migratedKeys).toContain('cc-haha-app-zoom')
+    expect(window.localStorage.getItem('cc-haha-app-zoom')).toBeNull()
+  })
+
   test('does not throw if schema version persistence is blocked', () => {
     const storage = {
       getItem: window.localStorage.getItem.bind(window.localStorage),
@@ -101,6 +117,7 @@ describe('desktop persistence migrations', () => {
       'cc-haha-session-runtime',
       'cc-haha-theme',
       'cc-haha-locale',
+      'cc-haha-app-zoom',
       DESKTOP_PERSISTENCE_VERSION_KEY,
     ]))
   })
