@@ -8,6 +8,7 @@
  */
 
 import * as fs from 'node:fs/promises'
+import { homedir } from 'node:os'
 import * as path from 'node:path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { parseFrontmatter } from '../../utils/frontmatterParser.js'
@@ -42,6 +43,8 @@ const MAX_MEMORY_FILE_BYTES = 512 * 1024
 const MAX_MEMORY_FILES = 500
 const PROJECT_LABEL_SESSION_SCAN_LIMIT = 10
 const PROJECT_LABEL_HEAD_BYTES = 64 * 1024
+const PROJECT_LABEL_FS_SEARCH_DEPTH = 24
+const PROJECT_LABEL_FS_SEARCH_NODE_LIMIT = 2000
 
 export async function handleMemoryApi(
   req: Request,
@@ -374,7 +377,10 @@ async function resolveProjectLabel(projectId: string, currentCwd: string): Promi
   if (sanitizePath(currentRoot) === projectId) return currentRoot
 
   const sessionPath = await inferProjectPathFromSessionFiles(projectId)
-  return sessionPath ?? unsanitizeProjectLabel(projectId)
+  if (sessionPath) return sessionPath
+
+  const filesystemPath = await inferProjectPathFromExistingDirectory(projectId)
+  return filesystemPath ?? unsanitizeProjectLabel(projectId)
 }
 
 async function inferProjectPathFromSessionFiles(projectId: string): Promise<string | undefined> {
@@ -422,6 +428,68 @@ async function readFileHead(filePath: string, bytes: number): Promise<string> {
   } finally {
     await handle.close()
   }
+}
+
+async function inferProjectPathFromExistingDirectory(projectId: string): Promise<string | undefined> {
+  const roots = Array.from(new Set([
+    homedir(),
+    process.env.HOME,
+    process.env.USERPROFILE,
+    '/private/tmp',
+    '/tmp',
+  ].filter((root): root is string => Boolean(root && path.isAbsolute(root)))))
+
+  for (const root of roots) {
+    const resolvedRoot = path.resolve(root)
+    if (!sanitizedPrefixCanMatch(projectId, sanitizePath(resolvedRoot))) continue
+    const state = { visited: 0 }
+    const match = await findDirectoryBySanitizedPath(projectId, resolvedRoot, 0, state)
+    if (match) return match.normalize('NFC')
+  }
+
+  return undefined
+}
+
+async function findDirectoryBySanitizedPath(
+  projectId: string,
+  candidate: string,
+  depth: number,
+  state: { visited: number },
+): Promise<string | undefined> {
+  if (state.visited >= PROJECT_LABEL_FS_SEARCH_NODE_LIMIT) return undefined
+  state.visited += 1
+
+  const candidateId = sanitizePath(candidate)
+  if (candidateId === projectId) return candidate
+  if (depth >= PROJECT_LABEL_FS_SEARCH_DEPTH || !sanitizedPrefixCanMatch(projectId, candidateId)) {
+    return undefined
+  }
+
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = await fs.readdir(candidate, { withFileTypes: true })
+  } catch {
+    return undefined
+  }
+
+  entries.sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of entries) {
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue
+    const child = path.join(candidate, entry.name)
+    if (!sanitizedPrefixCanMatch(projectId, sanitizePath(child))) continue
+    if (entry.isSymbolicLink() && !(await directoryExists(child))) continue
+    const match = await findDirectoryBySanitizedPath(projectId, child, depth + 1, state)
+    if (match) return match
+  }
+
+  return undefined
+}
+
+function sanitizedPrefixCanMatch(projectId: string, prefix: string): boolean {
+  if (projectId === prefix) return true
+  return prefix.endsWith('-')
+    ? projectId.startsWith(prefix)
+    : projectId.startsWith(`${prefix}-`)
 }
 
 function unsanitizeProjectLabel(projectId: string): string {

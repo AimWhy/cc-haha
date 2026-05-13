@@ -109,6 +109,24 @@ describe('memory API', () => {
     expect(project).toMatchObject({ label: cwd })
   })
 
+  it('recovers project labels from existing directories when no session metadata exists', async () => {
+    const cwd = path.join(tmpDir, '个人自媒体', '314', 'opus4', 'PicTacticAgent')
+    const projectId = sanitizePath(cwd)
+    const memoryDir = path.join(tmpDir, 'projects', projectId, 'memory')
+    await fs.mkdir(cwd, { recursive: true })
+    await fs.mkdir(memoryDir, { recursive: true })
+    await fs.writeFile(path.join(memoryDir, 'MEMORY.md'), '# Project Memory')
+
+    const projectsRes = await request('GET', '/api/memory/projects')
+    expect(projectsRes.status).toBe(200)
+    const projectsBody = await projectsRes.json() as {
+      projects: Array<{ id: string; label: string }>
+    }
+
+    const project = projectsBody.projects.find((item) => item.id === projectId)
+    expect(project).toMatchObject({ label: cwd })
+  })
+
   it('reads and writes only markdown files inside the project memory directory', async () => {
     const projectId = sanitizePath(path.join(tmpDir, 'workspace', 'app'))
 
