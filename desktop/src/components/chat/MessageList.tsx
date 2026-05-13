@@ -1,8 +1,9 @@
-import { useRef, useEffect, useMemo, memo, useState, useCallback, useLayoutEffect } from 'react'
+import { useRef, useEffect, useMemo, memo, useState, useCallback, useLayoutEffect, type ReactNode } from 'react'
 import { ArrowDown } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import { sessionsApi, type SessionTurnCheckpoint } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
+import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useTeamStore } from '../../stores/teamStore'
 import { useUIStore } from '../../stores/uiStore'
@@ -48,6 +49,157 @@ type TurnChangeCardModel = {
   checkpoint: SessionTurnCheckpoint
   workDir: string | null
   isLatest: boolean
+}
+
+type ChatMessageRole = 'user' | 'assistant'
+
+type ChatSelectionState = {
+  text: string
+  x: number
+  y: number
+}
+
+const CHAT_SELECTION_MENU_OFFSET = 8
+
+function clampValue(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(value, max))
+}
+
+function getElementForNode(node: Node | null): Element | null {
+  if (!node) return null
+  return node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement
+}
+
+function getChatSelectionPosition(range: Range, root: HTMLElement, pointer: { clientX: number; clientY: number }) {
+  const rect = typeof range.getBoundingClientRect === 'function'
+    ? range.getBoundingClientRect()
+    : null
+  const rootRect = root.getBoundingClientRect()
+  const pointerInsideRoot =
+    pointer.clientX >= rootRect.left &&
+    pointer.clientX <= rootRect.right &&
+    pointer.clientY >= rootRect.top &&
+    pointer.clientY <= rootRect.bottom
+  const fallbackX = rect && rect.width > 0
+    ? rect.left + rect.width / 2
+    : rect?.left ?? rootRect.left + 24
+  const fallbackY = rect
+    ? rect.bottom + CHAT_SELECTION_MENU_OFFSET
+    : rootRect.top + 24
+  const unclampedX = pointerInsideRoot ? pointer.clientX : fallbackX
+  const unclampedY = pointerInsideRoot ? pointer.clientY + CHAT_SELECTION_MENU_OFFSET : fallbackY
+  const minX = Math.max(12, rootRect.left + 8)
+  const maxX = Math.max(minX, Math.min(window.innerWidth - 160, rootRect.right - 136))
+  const minY = Math.max(12, rootRect.top + 8)
+  const maxY = Math.max(minY, Math.min(window.innerHeight - 48, rootRect.bottom - 40))
+
+  return {
+    x: clampValue(unclampedX, minX, maxX),
+    y: clampValue(unclampedY, minY, maxY),
+  }
+}
+
+function getChatSelectionFromContainer(
+  root: HTMLElement | null,
+  pointer: { clientX: number; clientY: number },
+): ChatSelectionState | null {
+  if (!root) return null
+  const selection = window.getSelection()
+  if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null
+
+  const range = selection.getRangeAt(0)
+  const startElement = getElementForNode(range.startContainer)
+  const endElement = getElementForNode(range.endContainer)
+  if (!startElement || !endElement || !root.contains(startElement) || !root.contains(endElement)) {
+    return null
+  }
+
+  const text = selection.toString().trim()
+  if (!text) return null
+
+  return {
+    ...getChatSelectionPosition(range, root, pointer),
+    text,
+  }
+}
+
+function ChatSelectionMenu({
+  selection,
+  onAdd,
+}: {
+  selection: ChatSelectionState | null
+  onAdd: () => void
+}) {
+  const t = useTranslation()
+  if (!selection) return null
+
+  return (
+    <button
+      type="button"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onAdd}
+      className="fixed z-50 inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-2.5 text-[12px] font-medium text-[var(--color-text-primary)] shadow-[var(--shadow-dropdown)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-brand)]/35"
+      style={{ left: selection.x, top: selection.y }}
+    >
+      <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">person_add</span>
+      <span>{t('chat.addSelectionToChat')}</span>
+    </button>
+  )
+}
+
+function SelectableChatMessage({
+  sessionId,
+  messageId,
+  role,
+  content,
+  children,
+}: {
+  sessionId?: string | null
+  messageId: string
+  role: ChatMessageRole
+  content: string
+  children: ReactNode
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const addReference = useWorkspaceChatContextStore((state) => state.addReference)
+  const [selectionMenu, setSelectionMenu] = useState<ChatSelectionState | null>(null)
+  const t = useTranslation()
+  const sourceName = role === 'assistant'
+    ? t('chat.assistantMessageReference')
+    : t('chat.userMessageReference')
+
+  useEffect(() => {
+    setSelectionMenu(null)
+  }, [content, messageId])
+
+  const addCurrentSelectionToChat = useCallback(() => {
+    if (!sessionId || !selectionMenu) return
+    addReference(sessionId, {
+      kind: 'chat-selection',
+      path: `chat://${role}/${messageId}`,
+      name: sourceName,
+      quote: selectionMenu.text,
+      sourceRole: role,
+      messageId,
+    })
+    setSelectionMenu(null)
+    window.getSelection()?.removeAllRanges()
+  }, [addReference, messageId, role, selectionMenu, sessionId, sourceName])
+
+  return (
+    <div
+      ref={rootRef}
+      onMouseUp={(event) => {
+        setSelectionMenu(getChatSelectionFromContainer(rootRef.current, event))
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') setSelectionMenu(null)
+      }}
+    >
+      {children}
+      <ChatSelectionMenu selection={selectionMenu} onAdd={addCurrentSelectionToChat} />
+    </div>
+  )
 }
 
 function appendChildToolCall(
@@ -671,13 +823,29 @@ export const MessageBlock = memo(function MessageBlock({
   switch (message.type) {
     case 'user_text':
       return (
-        <UserMessage
+        <SelectableChatMessage
+          sessionId={sessionId}
+          messageId={message.id}
+          role="user"
           content={message.content}
-          attachments={message.attachments}
-        />
+        >
+          <UserMessage
+            content={message.content}
+            attachments={message.attachments}
+          />
+        </SelectableChatMessage>
       )
     case 'assistant_text':
-      return <AssistantMessage content={message.content} />
+      return (
+        <SelectableChatMessage
+          sessionId={sessionId}
+          messageId={message.id}
+          role="assistant"
+          content={message.content}
+        >
+          <AssistantMessage content={message.content} />
+        </SelectableChatMessage>
+      )
     case 'thinking':
       return <ThinkingBlock content={message.content} isActive={message.id === activeThinkingId} />
     case 'tool_use':

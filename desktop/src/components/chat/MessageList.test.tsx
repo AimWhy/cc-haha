@@ -4,6 +4,7 @@ import { MessageList, buildRenderModel } from './MessageList'
 import { relativizeWorkspacePath } from './CurrentTurnChangeCard'
 import { sessionsApi } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
+import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useTabStore } from '../../stores/tabStore'
 import type { UIMessage } from '../../types/chat'
@@ -42,12 +43,67 @@ function makeSessionState(overrides: Partial<PerSessionState> = {}): PerSessionS
   }
 }
 
+function findTextNodeContaining(container: Element, text: string) {
+  const walker = document.createTreeWalker(container, 4)
+  let current = walker.nextNode()
+  while (current) {
+    if (current.textContent?.includes(text)) return current
+    current = walker.nextNode()
+  }
+  throw new Error(`Unable to find text node containing ${text}`)
+}
+
+async function selectMessageText(element: Element, text: string) {
+  const textNode = findTextNodeContaining(element, text)
+  const startOffset = textNode.textContent?.indexOf(text) ?? -1
+  const range = document.createRange()
+  range.setStart(textNode, startOffset)
+  range.setEnd(textNode, startOffset + text.length)
+  Object.assign(range, {
+    getBoundingClientRect: () => ({
+      left: 160,
+      top: 80,
+      right: 280,
+      bottom: 98,
+      width: 120,
+      height: 18,
+      x: 160,
+      y: 80,
+      toJSON: () => ({}),
+    }),
+  })
+
+  const selectableRoot = element.closest('[data-message-shell]')?.parentElement?.parentElement
+  Object.assign(selectableRoot ?? element, {
+    getBoundingClientRect: () => ({
+      left: 120,
+      top: 48,
+      right: 620,
+      bottom: 240,
+      width: 500,
+      height: 192,
+      x: 120,
+      y: 48,
+      toJSON: () => ({}),
+    }),
+  })
+
+  window.getSelection()?.removeAllRanges()
+  window.getSelection()?.addRange(range)
+
+  await act(async () => {
+    fireEvent.mouseUp(element, { clientX: 260, clientY: 104 })
+    await Promise.resolve()
+  })
+}
+
 describe('MessageList nested tool calls', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     useSettingsStore.setState({ locale: 'en' })
     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
     useChatStore.setState({ sessions: { [ACTIVE_TAB]: makeSessionState() } })
+    useWorkspaceChatContextStore.setState(useWorkspaceChatContextStore.getInitialState(), true)
     vi.spyOn(sessionsApi, 'getTurnCheckpoints').mockImplementation(
       () => new Promise(() => {}),
     )
@@ -427,6 +483,76 @@ describe('MessageList nested tool calls', () => {
     expect(writeText).not.toHaveBeenCalledWith(
       '先看 CLI 和服务端入口。\n再看 desktop 前后端边界。'
     )
+  })
+
+  it('adds selected user message text to the composer context', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'user-1',
+            type: 'user_text',
+            content: 'Please inspect the workspace selection behavior.',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const userText = screen.getByText('Please inspect the workspace selection behavior.')
+    await selectMessageText(userText, 'workspace selection behavior')
+    const floatingAddButton = screen.getByRole('button', { name: 'Add to chat' })
+
+    expect(floatingAddButton.style.left).toBe('260px')
+    expect(floatingAddButton.style.top).toBe('112px')
+
+    fireEvent.click(floatingAddButton)
+
+    expect(useWorkspaceChatContextStore.getState().referencesBySession[ACTIVE_TAB]).toMatchObject([
+      {
+        kind: 'chat-selection',
+        path: 'chat://user/user-1',
+        name: 'User message',
+        messageId: 'user-1',
+        sourceRole: 'user',
+        quote: 'workspace selection behavior',
+      },
+    ])
+    expect(window.getSelection()?.toString()).toBe('')
+  })
+
+  it('adds selected assistant reply text to the composer context', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'assistant-1',
+            type: 'assistant_text',
+            content: 'First inspect the file tree. Then quote the selected lines.',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const assistantText = screen.getByText(/First inspect the file tree/)
+    await selectMessageText(assistantText, 'quote the selected lines')
+    fireEvent.click(screen.getByRole('button', { name: 'Add to chat' }))
+
+    expect(useWorkspaceChatContextStore.getState().referencesBySession[ACTIVE_TAB]).toMatchObject([
+      {
+        kind: 'chat-selection',
+        path: 'chat://assistant/assistant-1',
+        name: 'Assistant message',
+        messageId: 'assistant-1',
+        sourceRole: 'assistant',
+        quote: 'quote the selected lines',
+      },
+    ])
   })
 
   it('does not force-scroll to the bottom while the user is reading history', async () => {

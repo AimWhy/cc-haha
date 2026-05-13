@@ -449,7 +449,7 @@ describe('chatStore history mapping', () => {
 
     useChatStore.getState().sendMessage(
       TEST_SESSION_ID,
-      'Notes for attached workspace files:\n- src/App.tsx:L4\n  Comment: tighten this',
+      'Referenced workspace context:\n@"src/App.tsx:L4":\nComment: tighten this\n```tsx\nconst value = 1\n```',
       [{
         type: 'file',
         name: 'App.tsx',
@@ -477,7 +477,7 @@ describe('chatStore history mapping', () => {
       {
         type: 'user_text',
         content: '改这里',
-        modelContent: '@"/repo/src/App.tsx" Notes for attached workspace files:\n- src/App.tsx:L4\n  Comment: tighten this',
+        modelContent: '@"/repo/src/App.tsx" Referenced workspace context:\n@"src/App.tsx:L4":\nComment: tighten this\n```tsx\nconst value = 1\n```',
         attachments: [{
           type: 'file',
           name: 'App.tsx',
@@ -493,7 +493,7 @@ describe('chatStore history mapping', () => {
       TEST_SESSION_ID,
       {
         type: 'user_message',
-        content: 'Notes for attached workspace files:\n- src/App.tsx:L4\n  Comment: tighten this',
+        content: 'Referenced workspace context:\n@"src/App.tsx:L4":\nComment: tighten this\n```tsx\nconst value = 1\n```',
         attachments: [{
           type: 'file',
           name: 'App.tsx',

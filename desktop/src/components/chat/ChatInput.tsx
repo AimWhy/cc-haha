@@ -66,7 +66,7 @@ function workspaceReferenceToAttachment(reference: WorkspaceChatReference): Atta
     id: reference.id,
     name: reference.name,
     type: 'file',
-    path: reference.path,
+    path: reference.kind === 'chat-selection' ? undefined : reference.path,
     isDirectory: reference.isDirectory,
     lineStart: reference.lineStart,
     lineEnd: reference.lineEnd,
@@ -519,7 +519,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     const contentForModel = [workspaceReferencePrompt, text].filter(Boolean).join('\n\n')
     const displayContent = text || (
       workspaceReferences.length > 0
-        ? t('chat.workspaceReferencesOnly', { count: workspaceReferences.length })
+        ? t('chat.contextReferencesOnly', { count: workspaceReferences.length })
         : ''
     )
     const uploadAttachmentPayload: AttachmentRef[] = attachments.map((attachment) => ({
@@ -533,22 +533,24 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
       note: attachment.note,
       quote: attachment.quote,
     }))
-    const workspaceAttachmentPayload: AttachmentRef[] = workspaceReferences.map((reference) => ({
-      type: 'file' as const,
-      name: reference.name,
-      path: reference.absolutePath ?? reference.path,
-      isDirectory: reference.isDirectory,
-      lineStart: reference.lineStart,
-      lineEnd: reference.lineEnd,
-      note: reference.note,
-      quote: reference.quote,
-    }))
+    const workspaceAttachmentPayload: AttachmentRef[] = workspaceReferences
+      .filter((reference) => reference.kind !== 'chat-selection')
+      .map((reference) => ({
+        type: 'file' as const,
+        name: reference.name,
+        path: reference.absolutePath ?? reference.path,
+        isDirectory: reference.isDirectory,
+        lineStart: reference.lineStart,
+        lineEnd: reference.lineEnd,
+        note: reference.note,
+        quote: reference.quote,
+      }))
     const visibleAttachmentPayload: AttachmentRef[] = [
       ...uploadAttachmentPayload,
       ...workspaceReferences.map((reference) => ({
         type: 'file' as const,
         name: reference.name,
-        path: reference.path,
+        path: reference.kind === 'chat-selection' ? undefined : reference.path,
         isDirectory: reference.isDirectory,
         lineStart: reference.lineStart,
         lineEnd: reference.lineEnd,
