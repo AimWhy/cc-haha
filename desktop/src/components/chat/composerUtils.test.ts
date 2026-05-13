@@ -55,6 +55,26 @@ describe('composerUtils', () => {
     )
   })
 
+  it('keeps slash command argument hints and fills missing fallback hints', () => {
+    expect(
+      mergeSlashCommands([
+        {
+          name: 'goal',
+          description: '',
+          argumentHint: '',
+        },
+      ]),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          name: 'goal',
+          description: 'Create or manage an autonomous completion goal',
+          argumentHint: '<objective>|status|pause|resume|clear|complete',
+        },
+      ]),
+    )
+  })
+
   it('resolves hidden settings aliases without displaying duplicate fallback rows', () => {
     expect(resolveSlashUiAction('plugins')).toEqual({ type: 'settings', tab: 'plugins' })
     expect(resolveSlashUiAction('memory')).toEqual({ type: 'settings', tab: 'memory' })

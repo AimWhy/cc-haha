@@ -24,6 +24,11 @@ export const FALLBACK_SLASH_COMMANDS = [
   ...SETTINGS_SLASH_COMMANDS.map(({ name, description }) => ({ name, description })),
   { name: 'compact', description: 'Compact conversation context' },
   { name: 'clear', description: 'Clear conversation history' },
+  {
+    name: 'goal',
+    description: 'Create or manage an autonomous completion goal',
+    argumentHint: '<objective>|status|pause|resume|clear|complete',
+  },
   { name: 'review', description: 'Review code changes' },
   { name: 'commit', description: 'Create a git commit' },
   { name: 'pr', description: 'Create a pull request' },
@@ -41,6 +46,7 @@ export const FALLBACK_SLASH_COMMANDS = [
 export type SlashCommandOption = {
   name: string
   description: string
+  argumentHint?: string
 }
 
 export type SlashUiAction =
@@ -79,6 +85,7 @@ export function mergeSlashCommands(
     merged.set(command.name, {
       name: command.name,
       description: command.description?.trim() || '',
+      ...(command.argumentHint?.trim() && { argumentHint: command.argumentHint.trim() }),
     })
   }
 
@@ -86,10 +93,11 @@ export function mergeSlashCommands(
     if (!command?.name) continue
     const existing = merged.get(command.name)
     if (existing) {
-      if (!existing.description && command.description) {
+      if ((!existing.description && command.description) || (!existing.argumentHint && command.argumentHint)) {
         merged.set(command.name, {
           ...existing,
-          description: command.description,
+          description: existing.description || command.description,
+          argumentHint: existing.argumentHint || command.argumentHint,
         })
       }
       continue

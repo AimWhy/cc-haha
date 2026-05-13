@@ -24,7 +24,20 @@ export function sdkCompatToolName(name: string): string {
   return name === AGENT_TOOL_NAME ? LEGACY_AGENT_TOOL_NAME : name
 }
 
-type CommandLike = { name: string; userInvocable?: boolean }
+type CommandLike = {
+  name: string
+  description?: string
+  argumentHint?: string
+  whenToUse?: string
+  userInvocable?: boolean
+}
+
+type SlashCommandMetadata = {
+  name: string
+  description: string
+  argumentHint?: string
+  whenToUse?: string
+}
 
 export type SystemInitInputs = {
   tools: ReadonlyArray<{ name: string }>
@@ -53,6 +66,7 @@ export type SystemInitInputs = {
 export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
   const settings = getSettings_DEPRECATED()
   const outputStyle = settings?.outputStyle ?? DEFAULT_OUTPUT_STYLE_NAME
+  const userInvocableCommands = inputs.commands.filter(c => c.userInvocable !== false)
 
   const initMessage: SDKMessage = {
     type: 'system',
@@ -66,9 +80,17 @@ export function buildSystemInitMessage(inputs: SystemInitInputs): SDKMessage {
     })),
     model: inputs.model,
     permissionMode: inputs.permissionMode,
-    slash_commands: inputs.commands
-      .filter(c => c.userInvocable !== false)
-      .map(c => c.name),
+    slash_commands: userInvocableCommands.map(c => c.name),
+    slash_commands_metadata: userInvocableCommands.map(command => ({
+      name: command.name,
+      description: command.description?.trim() ?? '',
+      ...(command.argumentHint?.trim() && {
+        argumentHint: command.argumentHint.trim(),
+      }),
+      ...(command.whenToUse?.trim() && {
+        whenToUse: command.whenToUse.trim(),
+      }),
+    } satisfies SlashCommandMetadata)),
     apiKeySource: getAnthropicApiKeyWithSource().source as ApiKeySource,
     betas: getSdkBetas(),
     claude_code_version: MACRO.VERSION,
