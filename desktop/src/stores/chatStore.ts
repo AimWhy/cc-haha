@@ -50,7 +50,7 @@ export type PerSessionState = {
   tokenUsage: TokenUsage
   elapsedSeconds: number
   statusVerb: string
-  slashCommands: Array<{ name: string; description: string }>
+  slashCommands: Array<{ name: string; description: string; argumentHint?: string }>
   agentTaskNotifications: Record<string, AgentTaskNotification>
   elapsedTimer: ReturnType<typeof setInterval> | null
   composerPrefill?: {
@@ -879,7 +879,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         break
       case 'system_notification':
         if (msg.subtype === 'slash_commands' && Array.isArray(msg.data)) {
-          update(() => ({ slashCommands: msg.data as Array<{ name: string; description: string }> }))
+          update(() => ({ slashCommands: msg.data as Array<{ name: string; description: string; argumentHint?: string }> }))
         }
         if (msg.subtype === 'session_cleared') {
           const session = get().sessions[sessionId]

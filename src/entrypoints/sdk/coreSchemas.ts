@@ -1473,6 +1473,16 @@ export const SDKSystemMessageSchema = lazySchema(() =>
     model: z.string(),
     permissionMode: PermissionModeSchema(),
     slash_commands: z.array(z.string()),
+    slash_commands_metadata: z
+      .array(
+        z.object({
+          name: z.string(),
+          description: z.string(),
+          argumentHint: z.string().optional(),
+          whenToUse: z.string().optional(),
+        }),
+      )
+      .optional(),
     output_style: z.string(),
     skills: z.array(z.string()),
     plugins: z.array(

@@ -5,6 +5,7 @@ import {
   closeSessionConnection,
   getActiveSessionIds,
   handleWebSocket,
+  normalizeSlashCommandMetadata,
   type WebSocketData,
 } from '../ws/handler.js'
 import { conversationService } from '../services/conversationService.js'
@@ -68,5 +69,28 @@ describe('WebSocket handler session isolation', () => {
     expect(ws.close).toHaveBeenCalledWith(1000, 'session deleted')
     expect(clearCallbacks).toHaveBeenCalledWith(sessionId)
     expect(cancelComputerUse).toHaveBeenCalledWith(sessionId)
+  })
+
+  it('normalizes slash command metadata while preserving legacy string payloads', () => {
+    expect(normalizeSlashCommandMetadata([
+      {
+        name: 'goal',
+        description: 'Create or manage an autonomous completion goal',
+        argumentHint: '<objective>|status|pause|resume|clear|complete',
+        whenToUse: 'Use when the session should keep iterating until done.',
+      },
+      'clear',
+      { command: 'compact', description: 'Compact context' },
+      { name: '   ' },
+    ])).toEqual([
+      {
+        name: 'goal',
+        description: 'Create or manage an autonomous completion goal',
+        argumentHint: '<objective>|status|pause|resume|clear|complete',
+        whenToUse: 'Use when the session should keep iterating until done.',
+      },
+      { name: 'clear', description: '' },
+      { name: 'compact', description: 'Compact context' },
+    ])
   })
 })

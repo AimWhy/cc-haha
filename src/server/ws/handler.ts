@@ -32,7 +32,14 @@ const providerService = new ProviderService()
 /**
  * Cache slash commands from CLI init messages, keyed by sessionId.
  */
-const sessionSlashCommands = new Map<string, Array<{ name: string; description: string }>>()
+type SlashCommandMetadata = {
+  name: string
+  description: string
+  argumentHint?: string
+  whenToUse?: string
+}
+
+const sessionSlashCommands = new Map<string, SlashCommandMetadata[]>()
 
 /**
  * Timers for delayed session cleanup after client disconnect.
@@ -86,7 +93,7 @@ async function sendRepositoryStartupStatus(
   }
 }
 
-export function getSlashCommands(sessionId: string): Array<{ name: string; description: string }> {
+export function getSlashCommands(sessionId: string): SlashCommandMetadata[] {
   return sessionSlashCommands.get(sessionId) || []
 }
 
@@ -784,12 +791,39 @@ function cacheSessionInitMetadata(sessionId: string, cliMsg: any) {
       await sessionService.deletePlaceholderSessionFiles(sessionId, cliMsg.cwd)
     })()
   }
-  if (cliMsg.slash_commands && Array.isArray(cliMsg.slash_commands)) {
-    sessionSlashCommands.set(sessionId, cliMsg.slash_commands.map((cmd: any) => ({
-      name: typeof cmd === 'string' ? cmd : (cmd.name || cmd.command || ''),
-      description: typeof cmd === 'string' ? '' : (cmd.description || ''),
-    })))
+  const slashCommandMetadata = normalizeSlashCommandMetadata(cliMsg.slash_commands_metadata)
+  const legacySlashCommands = normalizeSlashCommandMetadata(cliMsg.slash_commands)
+  const commands = slashCommandMetadata.length > 0 ? slashCommandMetadata : legacySlashCommands
+  if (commands.length > 0) {
+    sessionSlashCommands.set(sessionId, commands)
   }
+}
+
+export function normalizeSlashCommandMetadata(value: unknown): SlashCommandMetadata[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((cmd): SlashCommandMetadata[] => {
+    if (typeof cmd === 'string') {
+      return cmd.trim() ? [{ name: cmd, description: '' }] : []
+    }
+    if (!cmd || typeof cmd !== 'object') return []
+    const record = cmd as Record<string, unknown>
+    const rawName = typeof record.name === 'string'
+      ? record.name
+      : typeof record.command === 'string'
+        ? record.command
+        : ''
+    const name = rawName.trim()
+    if (!name) return []
+    const description = typeof record.description === 'string' ? record.description.trim() : ''
+    const argumentHint = typeof record.argumentHint === 'string' ? record.argumentHint.trim() : ''
+    const whenToUse = typeof record.whenToUse === 'string' ? record.whenToUse.trim() : ''
+    return [{
+      name,
+      description,
+      ...(argumentHint && { argumentHint }),
+      ...(whenToUse && { whenToUse }),
+    }]
+  })
 }
 
 function extractAssistantText(cliMsg: any): string {

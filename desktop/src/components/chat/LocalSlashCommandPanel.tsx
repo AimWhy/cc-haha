@@ -987,7 +987,12 @@ function HelpPanel({
 
   const renderCommand = (command: SlashCommandOption) => (
     <div key={command.name} className="flex min-w-0 items-start gap-3 border-t border-[var(--color-border)] px-4 py-3 first:border-t-0">
-      <div className="shrink-0 font-mono text-sm font-semibold text-[var(--color-text-primary)]">/{command.name}</div>
+      <div className="flex min-w-[120px] max-w-[45%] shrink-0 flex-wrap items-baseline gap-x-1.5 font-mono">
+        <span className="text-sm font-semibold text-[var(--color-text-primary)]">/{command.name}</span>
+        {command.argumentHint ? (
+          <span className="text-[11px] leading-5 text-[var(--color-text-tertiary)]">{command.argumentHint}</span>
+        ) : null}
+      </div>
       <div className="min-w-0 flex-1 text-xs leading-5 text-[var(--color-text-tertiary)]">{command.description}</div>
     </div>
   )

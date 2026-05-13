@@ -355,7 +355,8 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
     const lower = slashFilter.toLowerCase()
     return source.filter((command) => (
       command.name.toLowerCase().includes(lower) ||
-      command.description.toLowerCase().includes(lower)
+      command.description.toLowerCase().includes(lower) ||
+      command.argumentHint?.toLowerCase().includes(lower)
     ))
   }, [allSlashCommands, slashFilter])
 
@@ -888,8 +889,15 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
                         : 'hover:bg-[var(--color-surface-hover)]'
                     }`}
                   >
-                    <span className="shrink-0 text-sm font-semibold text-[var(--color-text-primary)]">
-                      /{command.name}
+                    <span className="flex min-w-0 max-w-[48%] shrink-0 items-baseline gap-1.5">
+                      <span className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
+                        /{command.name}
+                      </span>
+                      {command.argumentHint ? (
+                        <span className="truncate font-mono text-[11px] text-[var(--color-text-tertiary)]">
+                          {command.argumentHint}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-xs text-[var(--color-text-tertiary)]">
                       {command.description}
