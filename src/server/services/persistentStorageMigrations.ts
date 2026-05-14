@@ -2,6 +2,7 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 import { randomBytes } from 'node:crypto'
+import { normalizeLegacyDeepSeekManagedEnv } from '../../utils/providerManagedEnvCompat.js'
 
 export const CURRENT_PROVIDER_INDEX_SCHEMA_VERSION = 1
 
@@ -122,6 +123,10 @@ function migrateManagedSettings(value: unknown): JsonObject {
   if (!isRecord(value)) return {}
   if (value.env !== undefined && !isRecord(value.env)) {
     return { ...value, env: {} }
+  }
+  if (isRecord(value.env)) {
+    const { env, changed } = normalizeLegacyDeepSeekManagedEnv(value.env as Record<string, string>)
+    if (changed) return { ...value, env }
   }
   return value
 }

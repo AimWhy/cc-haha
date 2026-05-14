@@ -119,6 +119,108 @@ describe('MessageList nested tool calls', () => {
     })
   })
 
+  it('window-renders long transcripts while keeping the latest messages visible', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: Array.from({ length: 220 }, (_, index) => ({
+            id: `assistant-${index}`,
+            type: 'assistant_text',
+            content: `assistant transcript line ${index}`,
+            timestamp: index,
+          })),
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+
+    expect(screen.queryByText('assistant transcript line 0')).toBeNull()
+    expect(screen.getByText('assistant transcript line 219')).toBeTruthy()
+    expect(container.querySelectorAll('[data-message-shell="assistant"]').length).toBeLessThan(140)
+  })
+
+  it('restores the full transcript when scrolling away from latest', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: Array.from({ length: 220 }, (_, index) => ({
+            id: `assistant-${index}`,
+            type: 'assistant_text',
+            content: `assistant transcript line ${index}`,
+            timestamp: index,
+          })),
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scrollArea = container.querySelector('.chat-scroll-area') as HTMLElement
+    Object.defineProperty(scrollArea, 'clientHeight', { configurable: true, value: 500 })
+    Object.defineProperty(scrollArea, 'scrollHeight', { configurable: true, value: 220 * 112 })
+    await waitForProgrammaticScrollReset()
+
+    scrollArea.scrollTop = 0
+    await act(async () => {
+      fireEvent.scroll(scrollArea)
+    })
+
+    expect(screen.getByText('assistant transcript line 0')).toBeTruthy()
+    expect(screen.getByText('assistant transcript line 219')).toBeTruthy()
+    expect(container.querySelectorAll('[data-message-shell="assistant"]').length).toBe(220)
+  })
+
+  it('window-renders long histories that include tool-call groups', async () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'tool-read',
+              type: 'tool_use',
+              toolName: 'Read',
+              toolUseId: 'read-1',
+              input: { file_path: '/tmp/example.ts' },
+              timestamp: 0,
+            },
+            {
+              id: 'tool-read-result',
+              type: 'tool_result',
+              toolUseId: 'read-1',
+              content: 'read result content',
+              isError: false,
+              timestamp: 1,
+            },
+            ...Array.from({ length: 220 }, (_, index) => ({
+              id: `assistant-${index}`,
+              type: 'assistant_text' as const,
+              content: `assistant transcript line ${index}`,
+              timestamp: index + 2,
+            })),
+          ],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scrollArea = container.querySelector('.chat-scroll-area') as HTMLElement
+    Object.defineProperty(scrollArea, 'clientHeight', { configurable: true, value: 500 })
+    Object.defineProperty(scrollArea, 'scrollHeight', { configurable: true, value: 222 * 112 })
+    await waitForProgrammaticScrollReset()
+
+    expect(screen.queryByText('Read')).toBeNull()
+    expect(screen.getByText('assistant transcript line 219')).toBeTruthy()
+
+    scrollArea.scrollTop = 0
+    await act(async () => {
+      fireEvent.scroll(scrollArea)
+    })
+
+    expect(screen.getByText('Read')).toBeTruthy()
+    expect(screen.getByText('assistant transcript line 219')).toBeTruthy()
+    expect(container.querySelectorAll('[data-virtual-message-item]').length).toBe(221)
+  })
+
   it('renders sub-agent tool calls inline beneath the parent agent tool call', () => {
     useChatStore.setState({
       sessions: {

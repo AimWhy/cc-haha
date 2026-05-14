@@ -465,6 +465,8 @@ type MessageListProps = {
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 48
 const MAX_SCROLL_SNAPSHOTS = 100
+const VIRTUALIZE_MIN_ITEMS = 160
+const VIRTUAL_INITIAL_ITEMS = 96
 const CHAT_SCROLL_AREA_CLASS = [
   'chat-scroll-area',
   '[scrollbar-width:auto]',
@@ -512,6 +514,10 @@ function clampScrollTop(element: HTMLElement, scrollTop: number) {
   return Math.max(0, Math.min(scrollTop, element.scrollHeight - element.clientHeight))
 }
 
+function getRenderItemKey(item: RenderItem) {
+  return item.kind === 'tool_group' ? item.id : item.message.id
+}
+
 export function MessageList({ sessionId, compact = false }: MessageListProps = {}) {
   const activeTabId = useTabStore((s) => s.activeTabId)
   const resolvedSessionId = sessionId ?? activeTabId
@@ -535,6 +541,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const shouldAutoScrollRef = useRef(true)
   const isProgrammaticScrollingRef = useRef(false)
   const lastSessionIdRef = useRef<string | null | undefined>(resolvedSessionId)
+  const updateVirtualWindowRef = useRef<((element: HTMLElement) => void) | null>(null)
   const t = useTranslation()
   const [turnChangeCards, setTurnChangeCards] = useState<TurnChangeCardModel[]>([])
   const [turnChangeLoadError, setTurnChangeLoadError] = useState<string | null>(null)
@@ -575,6 +582,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     if (resolvedSessionId) {
       rememberSessionScroll(resolvedSessionId, container)
     }
+    updateVirtualWindowRef.current?.(container)
   }, [resolvedSessionId])
 
   useLayoutEffect(() => {
@@ -610,6 +618,58 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     () => buildRenderModel(messages),
     [messages],
   )
+  const shouldVirtualize = renderItems.length > VIRTUALIZE_MIN_ITEMS
+  const [virtualRange, setVirtualRange] = useState(() => ({ start: 0, end: 0 }))
+
+  const updateVirtualWindow = useCallback((container: HTMLElement | null) => {
+    if (!shouldVirtualize) {
+      setVirtualRange((current) =>
+        current.start === 0 && current.end === renderItems.length
+          ? current
+          : { start: 0, end: renderItems.length },
+      )
+      return
+    }
+
+    if (!container || shouldAutoScrollRef.current) {
+      const start = Math.max(0, renderItems.length - VIRTUAL_INITIAL_ITEMS)
+      setVirtualRange((current) =>
+        current.start === start && current.end === renderItems.length
+          ? current
+          : { start, end: renderItems.length },
+      )
+      return
+    }
+
+    setVirtualRange((current) =>
+      current.start === 0 && current.end === renderItems.length
+        ? current
+        : { start: 0, end: renderItems.length },
+    )
+  }, [renderItems.length, shouldVirtualize])
+
+  useEffect(() => {
+    updateVirtualWindowRef.current = updateVirtualWindow
+    return () => {
+      if (updateVirtualWindowRef.current === updateVirtualWindow) {
+        updateVirtualWindowRef.current = null
+      }
+    }
+  }, [updateVirtualWindow])
+
+  useLayoutEffect(() => {
+    updateVirtualWindow(scrollContainerRef.current)
+  }, [renderItems.length, resolvedSessionId, updateVirtualWindow])
+
+  const visibleRenderItems = shouldVirtualize
+    ? renderItems.slice(virtualRange.start, virtualRange.end)
+    : renderItems
+  const topVirtualSpacerHeight = shouldVirtualize
+    ? Math.max(0, virtualRange.start * 96)
+    : 0
+  const bottomVirtualSpacerHeight = shouldVirtualize
+    ? Math.max(0, renderItems.length - virtualRange.end) * 96
+    : 0
   const completedTurnTargets = useMemo(() => getCompletedTurnTargets(messages), [messages])
   const latestCompletedTurnId =
     completedTurnTargets.length > 0
@@ -757,12 +817,27 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
         onScroll={updateAutoScrollState}
         className={`${CHAT_SCROLL_AREA_CLASS} h-full overflow-y-auto ${compact ? 'px-3 py-3 pb-5' : 'px-4 py-4'}`}
       >
-        <div className={compact ? 'mx-auto max-w-full' : 'mx-auto max-w-[860px]'}>
-          {renderItems.map((item, index) => {
+        <div
+          className={compact ? 'mx-auto max-w-full' : 'mx-auto max-w-[860px]'}
+          role={shouldVirtualize ? 'list' : undefined}
+        >
+          {topVirtualSpacerHeight > 0 && (
+            <div aria-hidden="true" style={{ height: topVirtualSpacerHeight }} />
+          )}
+
+          {visibleRenderItems.map((item, visibleIndex) => {
+            const index = shouldVirtualize ? virtualRange.start + visibleIndex : visibleIndex
+            const itemKey = getRenderItemKey(item)
             const cardsForItem = turnCardsByRenderIndex.get(index) ?? []
 
             return (
-              <div key={item.kind === 'tool_group' ? item.id : item.message.id}>
+              <div
+                key={itemKey}
+                data-virtual-message-item={shouldVirtualize ? itemKey : undefined}
+                role={shouldVirtualize ? 'listitem' : undefined}
+                aria-posinset={shouldVirtualize ? index + 1 : undefined}
+                aria-setsize={shouldVirtualize ? renderItems.length : undefined}
+              >
                 {item.kind === 'tool_group' ? (
                   <ToolCallGroup
                     toolCalls={item.toolCalls}
@@ -809,6 +884,10 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
               </div>
             )
           })}
+
+          {bottomVirtualSpacerHeight > 0 && (
+            <div aria-hidden="true" style={{ height: bottomVirtualSpacerHeight }} />
+          )}
 
           {streamingText.trim() && (
             <AssistantMessage content={streamingText} isStreaming={chatState === 'streaming'} />
