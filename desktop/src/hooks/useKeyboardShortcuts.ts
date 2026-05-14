@@ -4,12 +4,10 @@ import { useChatStore } from '../stores/chatStore'
 import { useTabStore } from '../stores/tabStore'
 import { useUIStore } from '../stores/uiStore'
 import {
-  applyAppZoomLevel,
   getAppZoomKeyboardAction,
-  initializeAppZoom,
   nextAppZoomLevel,
-  readStoredAppZoomLevel,
 } from '../lib/appZoom'
+import { useSettingsStore } from '../stores/settingsStore'
 
 export function useKeyboardShortcuts() {
   const setActiveSession = useSessionStore((s) => s.setActiveSession)
@@ -20,6 +18,8 @@ export function useKeyboardShortcuts() {
   const stopGeneration = useChatStore((s) => s.stopGeneration)
   const activeTabId = useTabStore((s) => s.activeTabId)
   const chatState = useChatStore((s) => activeTabId ? s.sessions[activeTabId]?.chatState ?? 'idle' : 'idle')
+  const uiZoom = useSettingsStore((s) => s.uiZoom)
+  const setUiZoom = useSettingsStore((s) => s.setUiZoom)
 
   const activeModalRef = useRef(activeModal)
   activeModalRef.current = activeModal
@@ -27,18 +27,17 @@ export function useKeyboardShortcuts() {
   chatStateRef.current = chatState
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
-  const appZoomLevelRef = useRef(readStoredAppZoomLevel())
+  const appZoomLevelRef = useRef(uiZoom)
+  appZoomLevelRef.current = uiZoom
 
   useEffect(() => {
-    void initializeAppZoom()
-
     const handler = (e: KeyboardEvent) => {
       const zoomAction = getAppZoomKeyboardAction(e)
       if (zoomAction) {
         e.preventDefault()
         const nextZoom = nextAppZoomLevel(appZoomLevelRef.current, zoomAction)
         appZoomLevelRef.current = nextZoom
-        void applyAppZoomLevel(nextZoom)
+        setUiZoom(nextZoom)
         return
       }
 
@@ -80,5 +79,5 @@ export function useKeyboardShortcuts() {
 
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [closeModal, setActiveSession, setActiveView, setSidebarOpen, stopGeneration])
+  }, [closeModal, setActiveSession, setActiveView, setSidebarOpen, setUiZoom, stopGeneration])
 }

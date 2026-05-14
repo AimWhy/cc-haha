@@ -1,5 +1,10 @@
 import { THEME_MODES } from '../types/settings'
-import { APP_ZOOM_STORAGE_KEY, isValidStoredAppZoomLevel } from './appZoom'
+import {
+  APP_ZOOM_STORAGE_KEY,
+  LEGACY_UI_ZOOM_STORAGE_KEY,
+  isValidStoredAppZoomLevel,
+  normalizeAppZoomLevel,
+} from './appZoom'
 
 export const CURRENT_DESKTOP_PERSISTENCE_SCHEMA_VERSION = 1
 export const DESKTOP_PERSISTENCE_VERSION_KEY = 'cc-haha.persistence.schemaVersion'
@@ -120,6 +125,17 @@ function normalizeAppZoomKey(storage: StorageLike, report: DesktopMigrationRepor
   if (!isValidStoredAppZoomLevel(value)) {
     storage.removeItem(APP_ZOOM_STORAGE_KEY)
     report.migratedKeys.push(APP_ZOOM_STORAGE_KEY)
+  }
+
+  const currentValue = storage.getItem(APP_ZOOM_STORAGE_KEY)
+  const legacyValue = storage.getItem(LEGACY_UI_ZOOM_STORAGE_KEY)
+  if (currentValue === null && legacyValue !== null && isValidStoredAppZoomLevel(legacyValue)) {
+    storage.setItem(APP_ZOOM_STORAGE_KEY, String(normalizeAppZoomLevel(legacyValue)))
+    report.migratedKeys.push(APP_ZOOM_STORAGE_KEY)
+  }
+  if (legacyValue !== null) {
+    storage.removeItem(LEGACY_UI_ZOOM_STORAGE_KEY)
+    report.migratedKeys.push(LEGACY_UI_ZOOM_STORAGE_KEY)
   }
 }
 

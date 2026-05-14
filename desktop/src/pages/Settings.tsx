@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import QRCode from 'qrcode'
 import { Copy, Eye, EyeOff, PowerOff, QrCode, RotateCw } from 'lucide-react'
-import { useSettingsStore, UI_ZOOM_MIN, UI_ZOOM_MAX, UI_ZOOM_STEP } from '../stores/settingsStore'
+import { useSettingsStore, UI_ZOOM_DEFAULT, UI_ZOOM_MIN, UI_ZOOM_MAX, UI_ZOOM_STEP } from '../stores/settingsStore'
 import { useProviderStore } from '../stores/providerStore'
 import { useTranslation } from '../i18n'
 import { Modal } from '../components/shared/Modal'
@@ -1532,6 +1532,45 @@ function GeneralSettings() {
         ))}
       </div>
 
+      {/* UI Zoom */}
+      <div className="mb-8">
+        <div className="mb-3 flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.uiZoom')}</h2>
+            <p className="text-sm text-[var(--color-text-tertiary)]">{t('settings.general.uiZoomDescription')}</p>
+          </div>
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <span className="min-w-[48px] rounded-md bg-[var(--color-surface-container-low)] px-2 py-1 text-center text-sm font-medium text-[var(--color-text-secondary)]">
+              {Math.round(uiZoom * 100)}%
+            </span>
+            <button
+              type="button"
+              aria-label={t('settings.general.uiZoomReset')}
+              title={t('settings.general.uiZoomReset')}
+              onClick={() => setUiZoom(UI_ZOOM_DEFAULT)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+            >
+              <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+              100%
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="w-9 text-right text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MIN * 100)}%</span>
+          <input
+            type="range"
+            aria-label={t('settings.general.uiZoom')}
+            min={UI_ZOOM_MIN}
+            max={UI_ZOOM_MAX}
+            step={UI_ZOOM_STEP}
+            value={uiZoom}
+            onChange={(e) => setUiZoom(e.currentTarget.valueAsNumber)}
+            className="flex-1"
+          />
+          <span className="w-9 text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MAX * 100)}%</span>
+        </div>
+      </div>
+
       {/* Language selector */}
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.languageTitle')}</h2>
       <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.languageDescription')}</p>
@@ -1777,33 +1816,6 @@ function GeneralSettings() {
           </div>
         </div>
       </div>
-      {/* UI Zoom */}
-      <div className="mt-8">
-        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.uiZoom')}</h2>
-        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.uiZoomDescription')}</p>
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-end">
-            <span className="text-sm text-[var(--color-text-secondary)]">
-              {Math.round(uiZoom * 100)}%
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MIN * 100)}%</span>
-            <input
-              type="range"
-              min={UI_ZOOM_MIN}
-              max={UI_ZOOM_MAX}
-              step={UI_ZOOM_STEP}
-              value={uiZoom}
-              onChange={(e) => setUiZoom(parseFloat(e.target.value))}
-              onMouseUp={(e) => e.currentTarget.blur()}
-              className="flex-1"
-            />
-            <span className="text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MAX * 100)}%</span>
-          </div>
-        </div>
-      </div>
-
     </div>
   )
 }

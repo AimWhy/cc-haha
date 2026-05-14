@@ -770,7 +770,8 @@ export const zh: Record<TranslationKey, string> = {
   'settings.general.webSearchHint': '自动模式会对 Claude 模型名优先使用原生 WebSearch，失败或非 Claude 模型时再使用 Tavily/Brave。',
   'settings.general.webSearchSave': '保存',
   'settings.general.uiZoom': '界面缩放',
-  'settings.general.uiZoomDescription': '缩放整个界面，以便在高 DPI 屏幕上获得更好的可见性。',
+  'settings.general.uiZoomDescription': '调整整个界面的显示大小。',
+  'settings.general.uiZoomReset': '重置界面缩放到 100%',
 
   // ─── Empty Session ──────────────────────────────────────
   'empty.title': '新建会话',

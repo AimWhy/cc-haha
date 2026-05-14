@@ -22,6 +22,47 @@ describe('settingsStore locale defaults', () => {
   })
 })
 
+describe('settingsStore UI zoom', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    window.localStorage.clear()
+    document.documentElement.removeAttribute('data-app-zoom-percent')
+    document.documentElement.style.removeProperty('--app-zoom')
+    document.body.style.removeProperty('zoom')
+  })
+
+  it('hydrates from the app zoom storage key', async () => {
+    window.localStorage.setItem('cc-haha-app-zoom', '1.25')
+
+    const { useSettingsStore } = await import('./settingsStore')
+
+    expect(useSettingsStore.getState().uiZoom).toBe(1.25)
+  })
+
+  it('applies and persists UI zoom changes through the shared app zoom controller', async () => {
+    const { useSettingsStore } = await import('./settingsStore')
+
+    useSettingsStore.getState().setUiZoom(1.25)
+
+    await vi.waitFor(() => {
+      expect(window.localStorage.getItem('cc-haha-app-zoom')).toBe('1.25')
+    })
+    expect(useSettingsStore.getState().uiZoom).toBe(1.25)
+    expect(document.documentElement.getAttribute('data-app-zoom-percent')).toBe('125')
+  })
+
+  it('clamps UI zoom changes to the supported range', async () => {
+    const { useSettingsStore } = await import('./settingsStore')
+
+    useSettingsStore.getState().setUiZoom(9)
+
+    await vi.waitFor(() => {
+      expect(window.localStorage.getItem('cc-haha-app-zoom')).toBe('2')
+    })
+    expect(useSettingsStore.getState().uiZoom).toBe(2)
+  })
+})
+
 describe('settingsStore desktop notification persistence', () => {
   beforeEach(() => {
     vi.resetModules()

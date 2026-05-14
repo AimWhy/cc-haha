@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { APP_ZOOM_STORAGE_KEY } from '../lib/appZoom'
+import { useSettingsStore } from '../stores/settingsStore'
 import { useKeyboardShortcuts } from './useKeyboardShortcuts'
 
 function ShortcutHost() {
@@ -22,6 +23,7 @@ describe('useKeyboardShortcuts app zoom', () => {
     document.documentElement.removeAttribute('data-app-zoom-percent')
     document.documentElement.style.removeProperty('--app-zoom')
     document.body.style.removeProperty('zoom')
+    useSettingsStore.setState({ uiZoom: 1 })
     setNavigatorPlatform('Win32')
   })
 
@@ -41,6 +43,7 @@ describe('useKeyboardShortcuts app zoom', () => {
     await waitFor(() => {
       expect(window.localStorage.getItem(APP_ZOOM_STORAGE_KEY)).toBe('1.1')
     })
+    expect(useSettingsStore.getState().uiZoom).toBe(1.1)
     expect(document.documentElement.getAttribute('data-app-zoom-percent')).toBe('110')
 
     fireEvent.keyDown(document, {
@@ -52,6 +55,7 @@ describe('useKeyboardShortcuts app zoom', () => {
     await waitFor(() => {
       expect(window.localStorage.getItem(APP_ZOOM_STORAGE_KEY)).toBe('1')
     })
+    expect(useSettingsStore.getState().uiZoom).toBe(1)
 
     fireEvent.keyDown(document, {
       code: 'NumpadAdd',

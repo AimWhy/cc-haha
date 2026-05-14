@@ -144,6 +144,7 @@ describe('Settings > General tab', () => {
       skipWebFetchPreflight: true,
       desktopNotificationsEnabled: true,
       responseLanguage: '',
+      uiZoom: 1,
       webSearch: { mode: 'auto', tavilyApiKey: '', braveApiKey: '' },
       h5Access: {
         enabled: false,
@@ -166,6 +167,9 @@ describe('Settings > General tab', () => {
       }),
       setResponseLanguage: vi.fn().mockImplementation(async (language: string) => {
         useSettingsStore.setState({ responseLanguage: language })
+      }),
+      setUiZoom: vi.fn().mockImplementation((uiZoom: number) => {
+        useSettingsStore.setState({ uiZoom })
       }),
       setWebSearch: vi.fn().mockImplementation(async (webSearch) => {
         useSettingsStore.setState({ webSearch })
@@ -249,6 +253,26 @@ describe('Settings > General tab', () => {
 
     expect(screen.getByRole('button', { name: 'Pure White' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Warm Classic' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('updates the shared UI zoom setting from the General display control', async () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('UI Zoom'), {
+        target: { value: '1.25', valueAsNumber: 1.25 },
+      })
+    })
+
+    expect(useSettingsStore.getState().setUiZoom).toHaveBeenCalledWith(1.25)
+    expect(screen.getByText('125%')).toBeInTheDocument()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Reset UI zoom to 100%' }))
+    })
+
+    expect(useSettingsStore.getState().setUiZoom).toHaveBeenLastCalledWith(1)
   })
 
   it('opens the Token usage tab from Settings navigation above Diagnostics', () => {

@@ -81,6 +81,19 @@ describe('desktop persistence migrations', () => {
     expect(window.localStorage.getItem('cc-haha-app-zoom')).toBeNull()
   })
 
+  test('migrates the legacy UI zoom key into app zoom storage', () => {
+    window.localStorage.setItem('cc-haha-ui-zoom', '1.25')
+
+    const report = runDesktopPersistenceMigrations()
+
+    expect(report.migratedKeys).toEqual(expect.arrayContaining([
+      'cc-haha-app-zoom',
+      'cc-haha-ui-zoom',
+    ]))
+    expect(window.localStorage.getItem('cc-haha-app-zoom')).toBe('1.25')
+    expect(window.localStorage.getItem('cc-haha-ui-zoom')).toBeNull()
+  })
+
   test('does not throw if schema version persistence is blocked', () => {
     const storage = {
       getItem: window.localStorage.getItem.bind(window.localStorage),

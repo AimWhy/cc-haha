@@ -768,7 +768,8 @@ export const en = {
   'settings.general.webSearchHint': 'Auto uses native Claude web search for Claude model names, then falls back to Tavily and Brave keys.',
   'settings.general.webSearchSave': 'Save',
   'settings.general.uiZoom': 'UI Zoom',
-  'settings.general.uiZoomDescription': 'Scale the entire interface for better visibility on high-DPI displays.',
+  'settings.general.uiZoomDescription': 'Adjust the size of the entire interface.',
+  'settings.general.uiZoomReset': 'Reset UI zoom to 100%',
 
   // ─── Empty Session ──────────────────────────────────────
   'empty.title': 'New session',
