@@ -1194,6 +1194,82 @@ describe('WorkspacePanel', () => {
     ])
   })
 
+  it('copies file paths from the file tree menu with the legacy clipboard fallback', async () => {
+    const originalClipboard = navigator.clipboard
+    const originalExecCommand = document.execCommand
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn().mockReturnValue(true),
+    })
+    const execCommand = vi.mocked(document.execCommand)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('clipboard blocked')),
+      },
+    })
+    const writeText = vi.mocked(navigator.clipboard.writeText)
+
+    try {
+      await setWorkspaceState((state) => ({
+        ...state,
+        panelBySession: {
+          ...state.panelBySession,
+          'session-copy-file': {
+            isOpen: true,
+            activeView: 'all',
+          },
+        },
+        statusBySession: {
+          ...state.statusBySession,
+          'session-copy-file': {
+            state: 'ok',
+            workDir: '/repo',
+            repoName: 'repo',
+            branch: 'main',
+            isGitRepo: true,
+            changedFiles: [],
+          },
+        },
+        treeBySessionPath: {
+          ...state.treeBySessionPath,
+          'session-copy-file': {
+            '': {
+              state: 'ok',
+              path: '',
+              entries: [{ name: 'App.tsx', path: 'src/App.tsx', isDirectory: false }],
+            },
+          },
+        },
+      }))
+
+      const view = await renderPanel('session-copy-file')
+
+      await act(() => {
+        fireEvent.contextMenu(view.getByRole('button', { name: /App\.tsx/i }), {
+          clientX: 260,
+          clientY: 80,
+        })
+      })
+
+      await clickElement(view.getByRole('menuitem', { name: 'Copy path' }))
+
+      await waitFor(() => {
+        expect(execCommand).toHaveBeenCalledWith('copy')
+      })
+      expect(writeText).toHaveBeenCalledWith('/repo/src/App.tsx')
+    } finally {
+      Object.defineProperty(document, 'execCommand', {
+        configurable: true,
+        value: originalExecCommand,
+      })
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard,
+      })
+    }
+  })
+
   it('adds a line comment from a code preview to the chat context', async () => {
     await setWorkspaceState((state) => ({
       ...state,

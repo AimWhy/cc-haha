@@ -16,6 +16,7 @@ import {
 } from '../../stores/workspacePanelStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
+import { copyTextToClipboard } from '../chat/clipboard'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
 import {
   getFileExtension,
@@ -1066,9 +1067,9 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
     setPreviewTabContextMenu(null)
   }
 
-  const copyWorkspacePath = (path: string) => {
+  const copyWorkspacePath = async (path: string) => {
     const resolvedPath = resolveWorkspaceAttachmentPath(status?.workDir, path)
-    void navigator.clipboard?.writeText(resolvedPath)
+    await copyTextToClipboard(resolvedPath)
     setFileContextMenu(null)
   }
 
@@ -1460,7 +1461,7 @@ export function WorkspacePanel({ sessionId }: WorkspacePanelProps) {
           <button
             type="button"
             role="menuitem"
-            onClick={() => copyWorkspacePath(fileContextMenu.path)}
+            onClick={() => void copyWorkspacePath(fileContextMenu.path)}
             className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)]"
           >
             <span aria-hidden="true" className="material-symbols-outlined text-[14px] text-[var(--color-text-tertiary)]">content_copy</span>

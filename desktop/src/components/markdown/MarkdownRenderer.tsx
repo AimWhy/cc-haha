@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify'
 import { marked, type Tokens } from 'marked'
 import { CodeViewer } from '../chat/CodeViewer'
 import { MermaidRenderer } from '../chat/MermaidRenderer'
+import { copyTextToClipboard } from '../chat/clipboard'
 
 type Props = {
   content: string
@@ -201,16 +202,14 @@ export function MarkdownRenderer({ content, variant = 'default', className }: Pr
     const text = button.getAttribute('data-copy-code')
     if (!text) return
 
-    try {
-      await navigator.clipboard.writeText(text)
-      const original = button.textContent
-      button.textContent = 'Copied'
-      window.setTimeout(() => {
-        button.textContent = original
-      }, 1500)
-    } catch {
-      // Ignore clipboard errors
-    }
+    const copied = await copyTextToClipboard(text)
+    if (!copied) return
+
+    const original = button.textContent
+    button.textContent = 'Copied'
+    window.setTimeout(() => {
+      button.textContent = original
+    }, 1500)
   }, [])
 
   if (codeBlocks.length === 0) {

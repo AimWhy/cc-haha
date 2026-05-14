@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
 vi.mock('../chat/CodeViewer', () => ({
@@ -125,5 +125,43 @@ describe('MarkdownRenderer', () => {
     const link = screen.getByRole('link', { name: 'OpenAI' })
     expect(link).toHaveAttribute('target', '_blank')
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
+  })
+
+  it('copies enhanced markdown button text with the legacy clipboard fallback', async () => {
+    const originalClipboard = navigator.clipboard
+    const originalExecCommand = document.execCommand
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: vi.fn().mockReturnValue(true),
+    })
+    const execCommand = vi.mocked(document.execCommand)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('clipboard blocked')),
+      },
+    })
+    const writeText = vi.mocked(navigator.clipboard.writeText)
+
+    try {
+      render(<MarkdownRenderer content={'<button data-copy-code="npm run verify">Copy</button>'} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }))
+
+      await waitFor(() => {
+        expect(execCommand).toHaveBeenCalledWith('copy')
+      })
+      expect(writeText).toHaveBeenCalledWith('npm run verify')
+      expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+    } finally {
+      Object.defineProperty(document, 'execCommand', {
+        configurable: true,
+        value: originalExecCommand,
+      })
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: originalClipboard,
+      })
+    }
   })
 })
