@@ -256,6 +256,34 @@ describe('TabBar', () => {
     expect(screen.getByTestId('tab-bar-drag-gutter')).toHaveAttribute('data-tauri-drag-region')
   })
 
+  it('keeps the desktop tab strip at a roomier titlebar height', async () => {
+    const { TabBar } = await import('./TabBar')
+    const { useTabStore } = await import('../../stores/tabStore')
+    const { useChatStore } = await import('../../stores/chatStore')
+
+    useTabStore.setState({
+      tabs: [
+        { sessionId: 'tab-1', title: 'Untitled Session', type: 'session', status: 'idle' },
+      ],
+      activeTabId: 'tab-1',
+    })
+    useChatStore.setState({
+      sessions: {},
+      disconnectSession: vi.fn(),
+    } as Partial<ReturnType<typeof useChatStore.getState>>)
+
+    await act(async () => {
+      render(<TabBar />)
+    })
+
+    const tabBar = screen.getByTestId('tab-bar')
+    const tab = screen.getByText('Untitled Session').closest('.tab-bar-hit-area')
+
+    expect(tabBar).toHaveClass('min-h-11')
+    expect(tab).toHaveClass('min-h-11')
+    expect(screen.getByTestId('tab-bar-drag-gutter')).toHaveClass('min-h-11')
+  })
+
   it('passes the active session workdir into the open-project control', async () => {
     const { TabBar } = await import('./TabBar')
     const { useTabStore } = await import('../../stores/tabStore')
