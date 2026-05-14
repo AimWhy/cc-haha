@@ -177,6 +177,10 @@
   --color-surface-sidebar: var(--color-surface-container-low);
   --color-surface-hover: var(--color-surface-container-high);
   --color-surface-selected: var(--color-surface-container);
+  --color-memory-accent: #3B7068;
+  --color-memory-surface: color-mix(in srgb, var(--color-memory-accent) 7%, var(--color-surface-container-lowest));
+  --color-memory-border: color-mix(in srgb, var(--color-memory-accent) 26%, var(--color-border));
+  --color-memory-icon-bg: color-mix(in srgb, var(--color-memory-accent) 10%, var(--color-surface-container-lowest));
   --color-model-option-selected-bg: var(--color-primary-fixed);
   --color-model-option-selected-border: rgba(143, 72, 47, 0.2);
   --color-activity-heat-0: var(--color-surface-container);
@@ -374,6 +378,10 @@
   --color-surface-sidebar: #F1F4F7;
   --color-surface-hover: #F2F5F8;
   --color-surface-selected: #E9EEF3;
+  --color-memory-accent: #0F766E;
+  --color-memory-surface: color-mix(in srgb, var(--color-memory-accent) 5%, #FFFFFF);
+  --color-memory-border: color-mix(in srgb, var(--color-memory-accent) 24%, var(--color-border));
+  --color-memory-icon-bg: color-mix(in srgb, var(--color-memory-accent) 8%, #FFFFFF);
   --color-model-option-selected-bg: #FFF0EA;
   --color-model-option-selected-border: rgba(143, 72, 47, 0.2);
   --color-activity-heat-0: #EEF2F6;
@@ -548,6 +556,10 @@
   --color-surface-sidebar: #171615;
   --color-surface-hover: var(--color-surface-container-highest);
   --color-surface-selected: var(--color-surface-container);
+  --color-memory-accent: #7DD3C7;
+  --color-memory-surface: color-mix(in srgb, var(--color-memory-accent) 9%, var(--color-surface-container-lowest));
+  --color-memory-border: color-mix(in srgb, var(--color-memory-accent) 26%, var(--color-border));
+  --color-memory-icon-bg: color-mix(in srgb, var(--color-memory-accent) 12%, var(--color-surface-container-lowest));
   --color-model-option-selected-bg: rgba(255, 181, 159, 0.13);
   --color-model-option-selected-border: rgba(255, 181, 159, 0.34);
   --color-activity-heat-0: #242322;
@@ -967,8 +979,17 @@ button, input, textarea, select, a, [role="button"] {
 ::-webkit-scrollbar-thumb:hover { opacity: 0.6; }
 
 .sidebar-scroll-area {
+  padding-bottom: 72px;
   scrollbar-width: thin;
   scrollbar-color: var(--color-outline-a72) transparent;
+}
+
+.sidebar-settings-dock {
+  z-index: 30;
+  background-color: var(--color-surface-sidebar);
+  background-image: var(--sidebar-panel-bg-image);
+  background-repeat: no-repeat;
+  background-position: left bottom;
 }
 
 .sidebar-scroll-area::-webkit-scrollbar {

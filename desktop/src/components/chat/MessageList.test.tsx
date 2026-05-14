@@ -264,6 +264,9 @@ describe('MessageList nested tool calls', () => {
     expect(screen.getByText('Saved 1 memory item(s)')).toBeTruthy()
     expect(screen.getByText('preferences.md')).toBeTruthy()
     expect(screen.getByText('Tool details')).toBeTruthy()
+    const memoryCardClassName = screen.getByTestId('memory-tool-activity-card').className
+    expect(memoryCardClassName).toContain('border-[var(--color-memory-border)]')
+    expect(memoryCardClassName).toContain('bg-[var(--color-memory-surface)]')
   })
 
   it('promotes memory file reads into collapsible memory references', () => {

@@ -348,6 +348,13 @@ describe('Sidebar', () => {
     expect(screen.getByTestId('sidebar-session-list-section')).toHaveClass('flex', 'flex-1', 'min-h-0', 'flex-col')
   })
 
+  it('keeps the settings dock opaque above the scrolling session list', () => {
+    render(<Sidebar />)
+
+    expect(screen.getByTestId('sidebar-settings-dock')).toHaveClass('sidebar-settings-dock')
+    expect(screen.getByTestId('sidebar-settings-dock')).toHaveClass('absolute', 'bottom-0')
+  })
+
   it('keeps mobile navigation focused on chat sessions', async () => {
     const onRequestClose = vi.fn()
     createSession.mockResolvedValue('session-mobile-new')

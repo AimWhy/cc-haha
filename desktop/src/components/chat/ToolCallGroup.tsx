@@ -195,7 +195,10 @@ function MemoryToolActivityGroup({
 
   return (
     <div className="mb-2">
-      <div className="overflow-hidden rounded-lg border border-[color-mix(in_srgb,var(--color-brand)_22%,var(--color-border))] bg-[color-mix(in_srgb,var(--color-brand)_6%,var(--color-surface-container-lowest))]">
+      <div
+        data-testid="memory-tool-activity-card"
+        className="overflow-hidden rounded-lg border border-[var(--color-memory-border)] bg-[var(--color-memory-surface)]"
+      >
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
@@ -206,12 +209,12 @@ function MemoryToolActivityGroup({
           ) : (
             <ChevronRight size={15} className="shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
           )}
-          <BookMarked size={15} className="shrink-0 text-[var(--color-brand)]" aria-hidden="true" />
+          <BookMarked size={15} className="shrink-0 text-[var(--color-memory-accent)]" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--color-text-primary)]">
             {t(titleKey, { count: activity.files.length })}
           </span>
           {isStreaming ? (
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-brand)] animate-pulse-dot" />
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-memory-accent)] animate-pulse-dot" />
           ) : null}
         </button>
 
@@ -226,7 +229,7 @@ function MemoryToolActivityGroup({
                   onClick={() => openMemorySettings(file.path)}
                   className="group flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-surface-hover)] focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)]"
                 >
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-brand)]">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border border-[var(--color-memory-border)] bg-[var(--color-memory-icon-bg)] text-[var(--color-text-tertiary)] group-hover:text-[var(--color-memory-accent)]">
                     <Settings size={12} aria-hidden="true" />
                   </span>
                   <span className="min-w-0 flex-1">
