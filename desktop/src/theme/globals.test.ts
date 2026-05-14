@@ -41,6 +41,16 @@ describe('desktop theme tokens', () => {
     '--color-info',
     '--color-info-container',
     '--color-warning-container',
+    '--color-text-secondary-a72',
+    '--color-text-secondary-a68',
+    '--color-text-primary-a88',
+    '--color-text-primary-a82',
+    '--color-text-primary-a78',
+    '--color-surface-hover-a34',
+    '--color-surface-hover-a54',
+    '--color-outline-a72',
+    '--color-outline-a78',
+    '--color-outline-a92',
   ]
 
   it('defines activity and status tokens for every supported theme', () => {
@@ -51,5 +61,9 @@ describe('desktop theme tokens', () => {
         expect(block, `${theme} should define ${token}`).toContain(`${token}:`)
       }
     }
+  })
+
+  it('avoids color-mix in startup-critical shell chrome for Safari 15 WebView support', () => {
+    expect(css).not.toContain('color-mix(')
   })
 })

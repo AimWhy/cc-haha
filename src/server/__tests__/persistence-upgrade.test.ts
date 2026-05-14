@@ -88,6 +88,120 @@ describe('persistent storage upgrade migrations', () => {
     expect(rewritten.providers?.[0]?.extraFutureField).toBe('keep-me')
   })
 
+  test('imports legacy root providers config into cc-haha storage without deleting the source', async () => {
+    await fs.writeFile(
+      path.join(tempDir, 'providers.json'),
+      JSON.stringify({
+        version: 1,
+        activeModel: 'legacy-sonnet',
+        providers: [{
+          id: 'legacy-provider',
+          name: 'Legacy Root Provider',
+          baseUrl: 'https://legacy.example.test',
+          apiKey: 'legacy-token',
+          models: [
+            { id: 'legacy-haiku', name: 'Legacy Haiku' },
+            { id: 'legacy-sonnet', name: 'Legacy Sonnet' },
+          ],
+          isActive: true,
+          createdAt: 1,
+          updatedAt: 2,
+          notes: 'keep note',
+        }],
+      }, null, 2),
+      'utf-8',
+    )
+
+    const report = await ensurePersistentStorageUpgraded()
+
+    expect(report.failures).toEqual([])
+    expect(report.migratedEntries).toContain('providers.json -> cc-haha/providers.json')
+    expect(report.migratedEntries).toContain('providers.json -> cc-haha/settings.json')
+    expect(JSON.parse(await fs.readFile(path.join(tempDir, 'providers.json'), 'utf-8'))).toMatchObject({
+      version: 1,
+      activeModel: 'legacy-sonnet',
+    })
+
+    const migrated = JSON.parse(await fs.readFile(path.join(tempDir, 'cc-haha', 'providers.json'), 'utf-8')) as {
+      activeId?: string | null
+      providers?: Array<{
+        id?: string
+        presetId?: string
+        apiFormat?: string
+        models?: Record<string, string>
+        notes?: string
+      }>
+    }
+    expect(migrated.activeId).toBe('legacy-provider')
+    expect(migrated.providers?.[0]).toMatchObject({
+      id: 'legacy-provider',
+      presetId: 'custom',
+      apiFormat: 'anthropic',
+      notes: 'keep note',
+      models: {
+        main: 'legacy-sonnet',
+        haiku: 'legacy-sonnet',
+        sonnet: 'legacy-sonnet',
+        opus: 'legacy-sonnet',
+      },
+    })
+
+    const managedSettings = JSON.parse(await fs.readFile(path.join(tempDir, 'cc-haha', 'settings.json'), 'utf-8')) as {
+      env?: Record<string, string>
+    }
+    expect(managedSettings.env).toMatchObject({
+      ANTHROPIC_BASE_URL: 'https://legacy.example.test',
+      ANTHROPIC_AUTH_TOKEN: 'legacy-token',
+      ANTHROPIC_MODEL: 'legacy-sonnet',
+    })
+
+    const service = new ProviderService()
+    const { providers, activeId } = await service.listProviders()
+    expect(activeId).toBe('legacy-provider')
+    expect(providers[0]?.models.main).toBe('legacy-sonnet')
+  })
+
+  test('does not overwrite current cc-haha provider storage with a legacy root config', async () => {
+    const ccHahaDir = path.join(tempDir, 'cc-haha')
+    await fs.mkdir(ccHahaDir, { recursive: true })
+    await fs.writeFile(
+      path.join(tempDir, 'providers.json'),
+      JSON.stringify({
+        version: 1,
+        activeModel: 'legacy-model',
+        providers: [{
+          id: 'legacy-provider',
+          name: 'Legacy Root Provider',
+          baseUrl: 'https://legacy.example.test',
+          apiKey: 'legacy-token',
+          models: [{ id: 'legacy-model' }],
+          isActive: true,
+        }],
+      }, null, 2),
+      'utf-8',
+    )
+    await fs.writeFile(
+      path.join(ccHahaDir, 'providers.json'),
+      JSON.stringify({
+        schemaVersion: CURRENT_PROVIDER_INDEX_SCHEMA_VERSION,
+        activeId: null,
+        providers: [],
+      }, null, 2),
+      'utf-8',
+    )
+
+    const report = await ensurePersistentStorageUpgraded()
+
+    expect(report.failures).toEqual([])
+    expect(report.migratedEntries).not.toContain('providers.json -> cc-haha/providers.json')
+    const current = JSON.parse(await fs.readFile(path.join(ccHahaDir, 'providers.json'), 'utf-8')) as {
+      activeId?: string | null
+      providers?: unknown[]
+    }
+    expect(current.activeId).toBeNull()
+    expect(current.providers).toEqual([])
+  })
+
   test('does not write repo-owned schema metadata into shared user settings', async () => {
     await fs.writeFile(
       path.join(tempDir, 'settings.json'),
