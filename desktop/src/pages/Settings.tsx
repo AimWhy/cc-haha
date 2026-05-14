@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useMemo, useRef, type CSSProperties, type ReactNode } from 'react'
 import QRCode from 'qrcode'
 import { Copy, Eye, EyeOff, PowerOff, QrCode, RotateCw } from 'lucide-react'
 import { useSettingsStore, UI_ZOOM_DEFAULT, UI_ZOOM_MIN, UI_ZOOM_MAX, UI_ZOOM_STEP } from '../stores/settingsStore'
@@ -1392,11 +1392,21 @@ function GeneralSettings() {
   const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
   const [notificationPermission, setNotificationPermission] = useState<DesktopNotificationPermission>('default')
   const [notificationActionRunning, setNotificationActionRunning] = useState(false)
+  const [uiZoomDraft, setUiZoomDraft] = useState(uiZoom)
+  const [isUiZoomDragging, setIsUiZoomDragging] = useState(false)
   const webSearchDirty = JSON.stringify(webSearchDraft) !== JSON.stringify(webSearch)
+  const uiZoomPercent = Math.round(uiZoomDraft * 100)
+  const uiZoomRangeProgress = `${((uiZoomDraft - UI_ZOOM_MIN) / (UI_ZOOM_MAX - UI_ZOOM_MIN)) * 100}%`
 
   useEffect(() => {
     setWebSearchDraft(webSearch)
   }, [webSearch])
+
+  useEffect(() => {
+    if (!isUiZoomDragging) {
+      setUiZoomDraft(uiZoom)
+    }
+  }, [isUiZoomDragging, uiZoom])
 
   useEffect(() => {
     let cancelled = false
@@ -1513,6 +1523,107 @@ function GeneralSettings() {
     }
   }
 
+  const commitUiZoom = (value: number) => {
+    const nextZoom = Number.isFinite(value) ? value : UI_ZOOM_DEFAULT
+    setIsUiZoomDragging(false)
+    setUiZoomDraft(nextZoom)
+    setUiZoom(nextZoom)
+  }
+
+  const uiZoomSection = (
+    <div className="mt-8">
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.uiZoom')}</h2>
+          <p className="text-sm text-[var(--color-text-tertiary)]">{t('settings.general.uiZoomDescription')}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-[var(--color-text-tertiary)]">
+            <span>{t('settings.general.uiZoomShortcutHint')}</span>
+            <span className="inline-flex items-center gap-1">
+              <span className="font-medium text-[var(--color-text-secondary)]">{t('settings.general.uiZoomShortcutMac')}</span>
+              <kbd className="settings-zoom-kbd">⌘</kbd>
+              <kbd className="settings-zoom-kbd">+</kbd>
+              <span>/</span>
+              <kbd className="settings-zoom-kbd">⌘</kbd>
+              <kbd className="settings-zoom-kbd">-</kbd>
+              <span>/</span>
+              <kbd className="settings-zoom-kbd">⌘</kbd>
+              <kbd className="settings-zoom-kbd">0</kbd>
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="font-medium text-[var(--color-text-secondary)]">{t('settings.general.uiZoomShortcutWindows')}</span>
+              <kbd className="settings-zoom-kbd">Ctrl</kbd>
+              <kbd className="settings-zoom-kbd">+</kbd>
+              <span>/</span>
+              <kbd className="settings-zoom-kbd">Ctrl</kbd>
+              <kbd className="settings-zoom-kbd">-</kbd>
+              <span>/</span>
+              <kbd className="settings-zoom-kbd">Ctrl</kbd>
+              <kbd className="settings-zoom-kbd">0</kbd>
+            </span>
+            <span>{t('settings.general.uiZoomShortcutResetHint')}</span>
+          </div>
+        </div>
+        <div className="flex flex-shrink-0 items-center gap-2">
+          <span className="min-w-[48px] rounded-md bg-[var(--color-surface-container-low)] px-2 py-1 text-center text-sm font-medium text-[var(--color-text-secondary)]">
+            {uiZoomPercent}%
+          </span>
+          <button
+            type="button"
+            aria-label={t('settings.general.uiZoomReset')}
+            title={t('settings.general.uiZoomReset')}
+            onClick={() => {
+              setIsUiZoomDragging(false)
+              setUiZoomDraft(UI_ZOOM_DEFAULT)
+              setUiZoom(UI_ZOOM_DEFAULT)
+            }}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+          >
+            <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
+            100%
+          </button>
+        </div>
+      </div>
+      <div
+        className={`settings-zoom-control flex items-center gap-3 ${isUiZoomDragging ? 'is-dragging' : ''}`}
+        style={{ '--settings-zoom-range-progress': uiZoomRangeProgress } as CSSProperties}
+      >
+        <span className="w-9 text-right text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MIN * 100)}%</span>
+        <div className="settings-zoom-range-wrap flex-1">
+          <div className="settings-zoom-preview" aria-hidden="true">
+            {uiZoomPercent}%
+          </div>
+          <input
+            type="range"
+            aria-label={t('settings.general.uiZoom')}
+            min={UI_ZOOM_MIN}
+            max={UI_ZOOM_MAX}
+            step={UI_ZOOM_STEP}
+            value={uiZoomDraft}
+            onPointerDown={(e) => {
+              setIsUiZoomDragging(true)
+              e.currentTarget.setPointerCapture?.(e.pointerId)
+            }}
+            onPointerUp={(e) => commitUiZoom(e.currentTarget.valueAsNumber)}
+            onPointerCancel={(e) => commitUiZoom(e.currentTarget.valueAsNumber)}
+            onChange={(e) => setUiZoomDraft(e.currentTarget.valueAsNumber)}
+            onKeyUp={(e) => {
+              if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+                commitUiZoom(e.currentTarget.valueAsNumber)
+              }
+            }}
+            onBlur={(e) => {
+              if (uiZoomDraft !== uiZoom) {
+                commitUiZoom(e.currentTarget.valueAsNumber)
+              }
+            }}
+            className="settings-zoom-range w-full"
+          />
+        </div>
+        <span className="w-9 text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MAX * 100)}%</span>
+      </div>
+    </div>
+  )
+
   return (
     <div className="max-w-xl">
       {/* Appearance selector */}
@@ -1533,45 +1644,6 @@ function GeneralSettings() {
             {label}
           </button>
         ))}
-      </div>
-
-      {/* UI Zoom */}
-      <div className="mb-8">
-        <div className="mb-3 flex items-end justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.uiZoom')}</h2>
-            <p className="text-sm text-[var(--color-text-tertiary)]">{t('settings.general.uiZoomDescription')}</p>
-          </div>
-          <div className="flex flex-shrink-0 items-center gap-2">
-            <span className="min-w-[48px] rounded-md bg-[var(--color-surface-container-low)] px-2 py-1 text-center text-sm font-medium text-[var(--color-text-secondary)]">
-              {Math.round(uiZoom * 100)}%
-            </span>
-            <button
-              type="button"
-              aria-label={t('settings.general.uiZoomReset')}
-              title={t('settings.general.uiZoomReset')}
-              onClick={() => setUiZoom(UI_ZOOM_DEFAULT)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--color-border)] px-2 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border-focus)] hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
-            >
-              <RotateCw className="h-3.5 w-3.5" aria-hidden="true" />
-              100%
-            </button>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="w-9 text-right text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MIN * 100)}%</span>
-          <input
-            type="range"
-            aria-label={t('settings.general.uiZoom')}
-            min={UI_ZOOM_MIN}
-            max={UI_ZOOM_MAX}
-            step={UI_ZOOM_STEP}
-            value={uiZoom}
-            onChange={(e) => setUiZoom(e.currentTarget.valueAsNumber)}
-            className="flex-1"
-          />
-          <span className="w-9 text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MAX * 100)}%</span>
-        </div>
       </div>
 
       {/* Language selector */}
@@ -1703,6 +1775,8 @@ function GeneralSettings() {
           )}
         </div>
       </div>
+
+      {uiZoomSection}
 
       <div className="mt-8">
         <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.webFetchPreflightTitle')}</h2>

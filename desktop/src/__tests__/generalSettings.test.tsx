@@ -255,18 +255,48 @@ describe('Settings > General tab', () => {
     expect(screen.getByRole('button', { name: 'Warm Classic' })).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('updates the shared UI zoom setting from the General display control', async () => {
+  it('keeps UI zoom below system notifications because it is a secondary setting', () => {
     render(<Settings />)
 
     fireEvent.click(screen.getByText('General'))
+
+    const notificationsHeading = screen.getByRole('heading', { name: 'System Notifications' })
+    const uiZoomHeading = screen.getByRole('heading', { name: 'UI Zoom' })
+    const webFetchHeading = screen.getByRole('heading', { name: 'WebFetch Preflight' })
+
+    expect((notificationsHeading.compareDocumentPosition(uiZoomHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+    expect((uiZoomHeading.compareDocumentPosition(webFetchHeading) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true)
+  })
+
+  it('previews UI zoom while dragging and applies it only when the user releases the slider', async () => {
+    render(<Settings />)
+
+    fireEvent.click(screen.getByText('General'))
+    expect(screen.getByText('Shortcuts are faster:')).toBeInTheDocument()
+    expect(screen.getByText('macOS')).toBeInTheDocument()
+    expect(screen.getByText('Windows / Linux')).toBeInTheDocument()
+    expect(screen.getByText('0 resets zoom to 100%.')).toBeInTheDocument()
+
+    const slider = screen.getByLabelText('UI Zoom')
+
+    fireEvent.pointerDown(slider, { pointerId: 1 })
     await act(async () => {
-      fireEvent.change(screen.getByLabelText('UI Zoom'), {
+      fireEvent.change(slider, {
         target: { value: '1.25', valueAsNumber: 1.25 },
       })
     })
 
+    expect(screen.getAllByText('125%')).toHaveLength(2)
+    expect(useSettingsStore.getState().setUiZoom).not.toHaveBeenCalledWith(1.25)
+    expect(slider).toHaveClass('settings-zoom-range')
+    expect(slider.closest('.settings-zoom-control')).toHaveClass('is-dragging')
+    expect(slider.closest('.settings-zoom-control')).toHaveStyle({ '--settings-zoom-range-progress': '50%' })
+
+    await act(async () => {
+      fireEvent.pointerUp(slider, { pointerId: 1 })
+    })
+
     expect(useSettingsStore.getState().setUiZoom).toHaveBeenCalledWith(1.25)
-    expect(screen.getByText('125%')).toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Reset UI zoom to 100%' }))
