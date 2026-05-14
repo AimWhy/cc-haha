@@ -320,9 +320,16 @@ describe('ChatInput file mentions', () => {
 
     render(<ChatInput variant="hero" />)
 
+    const panel = screen.getByTestId('chat-input-panel')
+    expect(panel).toHaveClass('rounded-xl')
+    expect(panel).not.toHaveClass('rounded-b-none')
+
     expect(await screen.findByRole('button', { name: /Select branch: main/ })).toBeInTheDocument()
     expect(screen.getByText('Current worktree')).toBeInTheDocument()
     expect(screen.queryByText('Select a project...')).not.toBeInTheDocument()
+    const branchButton = screen.getByRole('button', { name: /Select branch: main/ })
+    expect(panel).toContainElement(branchButton.parentElement)
+    expect(branchButton.parentElement).toHaveClass('bg-transparent')
   })
 
   it('uses the persisted message count to keep reopened sessions in context mode while history loads', async () => {

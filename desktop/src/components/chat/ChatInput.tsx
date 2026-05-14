@@ -151,6 +151,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
   const useCompactControls = compact || isMobileComposer
   const iconOnlyAction = compact || isMobileComposer
   const activeLaunchWorkDir = showLaunchControls ? (launchWorkDir || resolvedWorkDir || '') : (resolvedWorkDir || '')
+  const embedLaunchControlsInHero = isHeroComposer && !useCompactControls && showLaunchControls
   const pendingSlashUiAction = !isMemberSession && input.trim().startsWith('/')
     ? resolveSlashUiAction(input.trim().slice(1))
     : null
@@ -802,7 +803,7 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
         <div
           data-testid="chat-input-panel"
           className={isHeroComposer
-            ? 'glass-panel relative flex flex-col gap-3 rounded-t-xl rounded-b-none p-4 transition-colors'
+            ? `glass-panel relative flex flex-col gap-3 ${embedLaunchControlsInHero ? 'rounded-xl' : 'rounded-t-xl rounded-b-none'} p-4 transition-colors`
             : compact
               ? `glass-panel relative p-3 transition-colors ${isMobileComposer ? 'rounded-2xl shadow-[0_-12px_36px_rgba(54,35,28,0.12)]' : 'rounded-xl'}`
               : `glass-panel relative transition-colors ${isMobileComposer ? 'rounded-2xl p-3 shadow-[0_-12px_36px_rgba(54,35,28,0.12)]' : 'rounded-xl p-4'}`}
@@ -1049,11 +1050,27 @@ export function ChatInput({ variant = 'default', compact = false }: ChatInputPro
               </button>
             </div>
           </div>
+
+          {embedLaunchControlsInHero && (
+            <div className="-mx-4 -mb-4 mt-3">
+              <RepositoryLaunchControls
+                workDir={activeLaunchWorkDir}
+                onWorkDirChange={handleLaunchWorkDirChange}
+                branch={launchBranch}
+                onBranchChange={setLaunchBranch}
+                useWorktree={launchUseWorktree}
+                onUseWorktreeChange={setLaunchUseWorktree}
+                onLaunchReadyChange={setLaunchReady}
+                disabled={isActive || launchTransitioning}
+                placement="composer"
+              />
+            </div>
+          )}
         </div>
 
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileSelect} />
 
-        {!isMemberSession && (
+        {!isMemberSession && !embedLaunchControlsInHero && (
           <div className={useCompactControls ? 'mt-2 flex min-w-0 px-1' : 'mt-3 px-1'}>
             {messageCount > 0 ? (
               <ProjectContextChip
