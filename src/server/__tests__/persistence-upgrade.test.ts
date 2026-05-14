@@ -233,4 +233,48 @@ describe('persistent storage upgrade migrations', () => {
     const quarantined = (await listFiles(ccHahaDir)).filter((file) => file.startsWith('settings.json.invalid-'))
     expect(quarantined.length).toBe(1)
   })
+
+  test('upgrades existing DeepSeek managed env to follow global thinking settings', async () => {
+    const ccHahaDir = path.join(tempDir, 'cc-haha')
+    await fs.mkdir(ccHahaDir, { recursive: true })
+    await fs.writeFile(
+      path.join(ccHahaDir, 'settings.json'),
+      JSON.stringify({
+        env: {
+          ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
+          ANTHROPIC_AUTH_TOKEN: 'test-token',
+          ANTHROPIC_MODEL: 'deepseek-v4-pro',
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-v4-flash',
+          ANTHROPIC_DEFAULT_SONNET_MODEL: 'deepseek-v4-pro',
+          ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro',
+          CC_HAHA_SEND_DISABLED_THINKING: '1',
+          USER_CUSTOM_ENV: 'keep-me',
+        },
+      }, null, 2),
+      'utf-8',
+    )
+
+    const report = await ensurePersistentStorageUpgraded()
+
+    expect(report.failures).toEqual([])
+    expect(report.migratedEntries).toContain('cc-haha/settings.json')
+
+    const migrated = JSON.parse(await fs.readFile(path.join(ccHahaDir, 'settings.json'), 'utf-8')) as {
+      env?: Record<string, string>
+    }
+    expect(migrated.env?.CC_HAHA_SEND_DISABLED_THINKING).toBeUndefined()
+    expect(migrated.env?.ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      'thinking,effort,adaptive_thinking,max_effort',
+    )
+    expect(migrated.env?.ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      'thinking,effort,adaptive_thinking,max_effort',
+    )
+    expect(migrated.env?.ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES).toBe(
+      'thinking,effort,adaptive_thinking,max_effort',
+    )
+    expect(migrated.env?.USER_CUSTOM_ENV).toBe('keep-me')
+
+    const backups = (await listFiles(ccHahaDir)).filter((file) => file.startsWith('settings.json.bak-before-migration-'))
+    expect(backups.length).toBe(1)
+  })
 })

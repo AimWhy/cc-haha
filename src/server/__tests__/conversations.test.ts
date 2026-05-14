@@ -980,6 +980,90 @@ describe('WebSocket Chat Integration', () => {
     }
   })
 
+  it('should let the global Thinking setting control DeepSeek desktop sessions', async () => {
+    const providerService = new ProviderService()
+    const provider = await providerService.addProvider({
+      presetId: 'deepseek',
+      name: 'DeepSeek Thinking Toggle',
+      apiKey: 'key-deepseek-toggle',
+      baseUrl: 'https://api.deepseek.com/anthropic',
+      apiFormat: 'anthropic',
+      models: {
+        main: 'deepseek-v4-pro',
+        haiku: 'deepseek-v4-flash',
+        sonnet: 'deepseek-v4-pro',
+        opus: 'deepseek-v4-pro',
+      },
+    })
+    await providerService.activateProvider(provider.id)
+
+    const originalStartSession = conversationService.startSession.bind(conversationService)
+    const startOptions: Array<{
+      sessionId: string
+      thinking?: string
+      providerId?: string | null
+    }> = []
+    const sessionIds: string[] = []
+
+    conversationService.startSession = (async function patchedStartSession(
+      sid: string,
+      workDir: string,
+      sdkUrl: string,
+      options?: { permissionMode?: string; model?: string; effort?: string; thinking?: 'enabled' | 'adaptive' | 'disabled'; providerId?: string | null },
+    ) {
+      if (sessionIds.includes(sid)) {
+        startOptions.push({
+          sessionId: sid,
+          thinking: options?.thinking,
+          providerId: options?.providerId,
+        })
+      }
+      return originalStartSession(sid, workDir, sdkUrl, options)
+    }) as typeof conversationService.startSession
+
+    try {
+      const disabledSessionId = `ds-think-off-${crypto.randomUUID()}`
+      sessionIds.push(disabledSessionId)
+      await fs.writeFile(
+        path.join(tmpDir, 'settings.json'),
+        JSON.stringify({ alwaysThinkingEnabled: false }, null, 2),
+        'utf-8',
+      )
+      const disabledMessages = await runTurn(disabledSessionId, 'DeepSeek with global thinking off')
+      expect(disabledMessages.some((m) => m.type === 'message_complete')).toBe(true)
+
+      const enabledSessionId = `ds-think-on-${crypto.randomUUID()}`
+      sessionIds.push(enabledSessionId)
+      await fs.writeFile(
+        path.join(tmpDir, 'settings.json'),
+        JSON.stringify({ alwaysThinkingEnabled: true }, null, 2),
+        'utf-8',
+      )
+      const enabledMessages = await runTurn(enabledSessionId, 'DeepSeek with global thinking on')
+      expect(enabledMessages.some((m) => m.type === 'message_complete')).toBe(true)
+
+      expect(startOptions).toEqual([
+        {
+          sessionId: disabledSessionId,
+          thinking: 'disabled',
+          providerId: provider.id,
+        },
+        {
+          sessionId: enabledSessionId,
+          thinking: undefined,
+          providerId: provider.id,
+        },
+      ])
+    } finally {
+      conversationService.startSession = originalStartSession as typeof conversationService.startSession
+      for (const sessionId of sessionIds) {
+        conversationService.stopSession(sessionId)
+      }
+      await providerService.activateOfficial()
+      await fs.writeFile(path.join(tmpDir, 'settings.json'), '{}\n', 'utf-8')
+    }
+  }, 20_000)
+
   it('should continue chat when SDK init arrives only after the first user turn', async () => {
     const messages = await withMockInitMode('on_first_user', () =>
       runTurn('chat-test-lazy-init', 'Hello after lazy init'),
