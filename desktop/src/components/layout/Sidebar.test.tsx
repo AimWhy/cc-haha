@@ -6,6 +6,18 @@ vi.mock('./ProjectFilter', () => ({
   ProjectFilter: () => <div data-testid="project-filter" />,
 }))
 
+const openTargetStoreMock = vi.hoisted(() => ({
+  ensureTargets: vi.fn(),
+  openTarget: vi.fn(),
+  targets: [{ id: 'finder', kind: 'file_manager', label: 'Finder', platform: 'darwin' }],
+}))
+
+vi.mock('../../stores/openTargetStore', () => ({
+  useOpenTargetStore: {
+    getState: () => openTargetStoreMock,
+  },
+}))
+
 vi.mock('../../i18n', () => ({
   useTranslation: () => (key: string, params?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
@@ -17,6 +29,23 @@ vi.mock('../../i18n', () => ({
       'sidebar.noMatching': 'No matching sessions',
       'sidebar.sessionListFailed': 'Session list failed',
       'sidebar.refreshSessions': 'Refresh sessions',
+      'sidebar.projects': 'Projects',
+      'sidebar.projectActions': 'Project actions for {project}',
+      'sidebar.pinProject': 'Pin Project',
+      'sidebar.unpinProject': 'Unpin Project',
+      'sidebar.openInFinder': 'Open in Finder',
+      'sidebar.openInFinderFailed': 'Could not open the project in Finder.',
+      'sidebar.openInFinderUnavailable': 'No file manager is available.',
+      'sidebar.createPermanentWorktree': 'Create Permanent Worktree',
+      'sidebar.renameProject': 'Rename Project',
+      'sidebar.archiveSessions': 'Archive Conversations',
+      'sidebar.removeProject': 'Remove',
+      'sidebar.newSessionInProject': 'New session in {project}',
+      'sidebar.showMoreSessions': 'Show {count} more',
+      'sidebar.showFewerSessions': 'Show fewer',
+      'sidebar.expandProject': 'Expand {project}',
+      'sidebar.collapseProject': 'Collapse {project}',
+      'sidebar.worktree': 'worktree',
       'common.retry': 'Retry',
       'common.loading': 'Loading...',
       'common.cancel': 'Cancel',
@@ -58,6 +87,51 @@ import { useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
+import type { SessionListItem } from '../../types/session'
+
+const PROJECT_ORDER_STORAGE_KEY = 'cc-haha-sidebar-project-order'
+const PROJECT_PINNED_STORAGE_KEY = 'cc-haha-sidebar-pinned-projects'
+
+function makeSession(
+  id: string,
+  title: string,
+  projectRoot: string,
+  modifiedAt: string,
+): SessionListItem {
+  return {
+    id,
+    title,
+    createdAt: modifiedAt,
+    modifiedAt,
+    messageCount: 1,
+    projectPath: projectRoot,
+    projectRoot,
+    workDir: projectRoot,
+    workDirExists: true,
+  }
+}
+
+function makeDataTransfer() {
+  const data = new Map<string, string>()
+  return {
+    effectAllowed: '',
+    dropEffect: '',
+    setData: vi.fn((type: string, value: string) => data.set(type, value)),
+    getData: vi.fn((type: string) => data.get(type) ?? ''),
+  }
+}
+
+function projectGroupNames(): string[] {
+  return screen
+    .getAllByTestId(/^sidebar-project-group-/)
+    .map((group) => group.textContent ?? '')
+    .map((text) => {
+      if (text.includes('alpha')) return 'alpha'
+      if (text.includes('beta')) return 'beta'
+      if (text.includes('gamma')) return 'gamma'
+      return text
+    })
+}
 
 describe('Sidebar', () => {
   const connectToSession = vi.fn()
@@ -76,6 +150,11 @@ describe('Sidebar', () => {
     deleteSession.mockReset()
     deleteSessions.mockReset()
     addToast.mockReset()
+    openTargetStoreMock.ensureTargets.mockReset()
+    openTargetStoreMock.openTarget.mockReset()
+    openTargetStoreMock.targets = [{ id: 'finder', kind: 'file_manager', label: 'Finder', platform: 'darwin' }]
+    window.localStorage.removeItem(PROJECT_ORDER_STORAGE_KEY)
+    window.localStorage.removeItem(PROJECT_PINNED_STORAGE_KEY)
 
     useTabStore.setState({ tabs: [], activeTabId: null })
     useSessionStore.setState({
@@ -106,6 +185,8 @@ describe('Sidebar', () => {
     vi.useRealTimers()
     cleanup()
     useTabStore.setState({ tabs: [], activeTabId: null })
+    window.localStorage.removeItem(PROJECT_ORDER_STORAGE_KEY)
+    window.localStorage.removeItem(PROJECT_PINNED_STORAGE_KEY)
   })
 
   it('opens a new tab when creating a session from the sidebar', async () => {
@@ -127,6 +208,252 @@ describe('Sidebar', () => {
     ])
     expect(useTabStore.getState().activeTabId).toBe('session-new-1')
     expect(screen.getByRole('complementary')).not.toHaveAttribute('data-tauri-drag-region')
+  })
+
+  it('groups sessions by project and expands overflow rows', () => {
+    const base = new Date('2026-05-15T10:00:00.000Z').getTime()
+    useSessionStore.setState({
+      sessions: [
+        ...Array.from({ length: 11 }, (_, index) => (
+          makeSession(
+            `alpha-${index + 1}`,
+            index === 0 ? 'Alpha newest' : index === 10 ? 'Alpha hidden' : `Alpha ${index + 1}`,
+            '/workspace/alpha',
+            new Date(base - index * 1000).toISOString(),
+          )
+        )),
+        makeSession('beta-1', 'Beta only', '/workspace/beta', new Date(base - 4000).toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.queryByText('/workspace/alpha')).not.toBeInTheDocument()
+    expect(screen.getByText('beta')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Alpha newest/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Alpha hidden/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Alpha newest/ }).closest('[class*="pl-0"]')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }))
+
+    expect(screen.getByRole('button', { name: /Alpha hidden/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show fewer' })).toBeInTheDocument()
+  })
+
+  it('reorders project groups by dragging project headers while preserving expanded state', async () => {
+    const base = new Date('2026-05-15T10:00:00.000Z').getTime()
+    useSessionStore.setState({
+      sessions: [
+        ...Array.from({ length: 11 }, (_, index) => (
+          makeSession(
+            `alpha-${index + 1}`,
+            index === 10 ? 'Alpha hidden' : `Alpha ${index + 1}`,
+            '/workspace/alpha',
+            new Date(base - index * 1000).toISOString(),
+          )
+        )),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', new Date(base - 20_000).toISOString()),
+        makeSession('gamma-1', 'Gamma Session', '/workspace/gamma', new Date(base - 30_000).toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }))
+    expect(screen.getByRole('button', { name: /Alpha hidden/ })).toBeInTheDocument()
+    expect(projectGroupNames().slice(0, 3)).toEqual(['alpha', 'beta', 'gamma'])
+
+    const dataTransfer = makeDataTransfer()
+    const alphaGroup = screen.getByTestId('sidebar-project-group-workspace-alpha')
+    vi.spyOn(alphaGroup, 'getBoundingClientRect').mockReturnValue({
+      top: 0,
+      bottom: 100,
+      left: 0,
+      right: 280,
+      width: 280,
+      height: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.dragStart(screen.getByRole('button', { name: 'Collapse gamma' }), { dataTransfer })
+    fireEvent.dragOver(alphaGroup, { clientY: -10, dataTransfer })
+    fireEvent.drop(alphaGroup, { clientY: -10, dataTransfer })
+
+    await waitFor(() => {
+      expect(projectGroupNames().slice(0, 3)).toEqual(['alpha', 'gamma', 'beta'])
+    })
+    expect(screen.getByRole('button', { name: /Alpha hidden/ })).toBeInTheDocument()
+    expect(JSON.parse(window.localStorage.getItem(PROJECT_ORDER_STORAGE_KEY) ?? '[]').slice(0, 3)).toEqual([
+      '/workspace/alpha',
+      '/workspace/gamma',
+      '/workspace/beta',
+    ])
+  })
+
+  it('restores the saved project drag order on render', () => {
+    window.localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify([
+      '/workspace/beta',
+      '/workspace/alpha',
+    ]))
+    const now = new Date().toISOString()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', now),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', now),
+        makeSession('gamma-1', 'Gamma Session', '/workspace/gamma', now),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(projectGroupNames().slice(0, 3)).toEqual(['beta', 'alpha', 'gamma'])
+  })
+
+  it('collapses a project group without removing the project header', () => {
+    const now = new Date().toISOString()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', now),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', now),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse alpha' }))
+
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Alpha Session/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Beta Session/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand alpha' })).toBeInTheDocument()
+  })
+
+  it('uses a bounded per-project session scroller for large expanded groups', () => {
+    const base = new Date('2026-05-15T10:00:00.000Z').getTime()
+    useSessionStore.setState({
+      sessions: Array.from({ length: 14 }, (_, index) => (
+        makeSession(`alpha-${index + 1}`, `Alpha ${index + 1}`, '/workspace/alpha', new Date(base - index * 1000).toISOString())
+      )),
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show 8 more' }))
+
+    expect(screen.getByTestId('sidebar-project-session-list-workspace-alpha')).toHaveClass('max-h-[420px]', 'overflow-y-auto')
+  })
+
+  it('creates a new session from the project group context', async () => {
+    createSession.mockResolvedValue('session-alpha-new')
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', new Date().toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'New session in alpha' }))
+    })
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalledWith('/workspace/alpha')
+      expect(connectToSession).toHaveBeenCalledWith('session-alpha-new')
+    })
+  })
+
+  it('keeps project row actions hidden until project hover or focus', () => {
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', new Date().toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    const actionButton = screen.getByRole('button', { name: 'Project actions for alpha' })
+    expect(actionButton.parentElement).toHaveClass('opacity-0')
+    expect(actionButton.parentElement).toHaveClass('group-hover/project:opacity-100')
+    expect(actionButton.parentElement).toHaveClass('group-focus-within/project:opacity-100')
+  })
+
+  it('shows the project action menu with pin and Finder actions', async () => {
+    const now = new Date().toISOString()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', now),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }))
+
+    expect(screen.getByRole('menuitem', { name: 'Pin Project' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Open in Finder' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Create Permanent Worktree' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Rename Project' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Archive Conversations' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Remove' })).toBeDisabled()
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Finder' }))
+    })
+
+    expect(openTargetStoreMock.ensureTargets).toHaveBeenCalledTimes(1)
+    expect(openTargetStoreMock.openTarget).toHaveBeenCalledWith('finder', '/workspace/alpha')
+  })
+
+  it('pins a project above the rest of the project list', async () => {
+    const base = new Date('2026-05-15T10:00:00.000Z').getTime()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', new Date(base).toISOString()),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', new Date(base - 20_000).toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(projectGroupNames().slice(0, 2)).toEqual(['alpha', 'beta'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project actions for beta' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Pin Project' }))
+
+    await waitFor(() => {
+      expect(projectGroupNames().slice(0, 2)).toEqual(['beta', 'alpha'])
+    })
+    expect(JSON.parse(window.localStorage.getItem(PROJECT_PINNED_STORAGE_KEY) ?? '[]')).toEqual(['/workspace/beta'])
+  })
+
+  it('keeps persisted worktree sessions under the source project group', () => {
+    const now = new Date().toISOString()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('source-1', 'Source Session', '/workspace/repo', now),
+        {
+          ...makeSession('worktree-1', 'Worktree Session', '/workspace/repo/.claude/worktrees/desktop-main-12345678', now),
+          projectRoot: '/workspace/repo',
+        },
+        {
+          ...makeSession('subdir-1', 'Subdir Session', '/workspace/repo/packages/app', now),
+          projectRoot: '/workspace/repo',
+        },
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.getByText('repo')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Source Session/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Worktree Session/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Subdir Session/ })).toBeInTheDocument()
+    expect(screen.getAllByText('worktree')).toHaveLength(1)
   })
 
   it('shows a toast when session creation fails', async () => {
@@ -308,7 +635,7 @@ describe('Sidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Batch manage' }))
     fireEvent.click(screen.getByRole('button', { name: /First Session/ }))
 
-    expect(screen.getByRole('button', { name: /First Session/ }).parentElement).toHaveClass('mb-1.5')
+    expect(screen.getByRole('button', { name: /First Session/ }).parentElement).toHaveClass('mb-0.5')
     expect(screen.getByRole('button', { name: /First Session/ })).toHaveClass('sidebar-session-row--selected')
     expect(screen.getByRole('button', { name: /Second Session/ })).toHaveClass('sidebar-session-row--active')
     expect(screen.getByRole('button', { name: /Third Session/ })).toHaveClass('sidebar-session-row--idle')

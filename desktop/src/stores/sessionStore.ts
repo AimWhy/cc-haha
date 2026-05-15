@@ -64,7 +64,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         }
         const sessions = [...byId.values()]
         syncedSessions = sessions
-        const availableProjects = [...new Set(sessions.map((s) => s.projectPath).filter(Boolean))].sort()
+        const availableProjects = [...new Set(sessions.map((s) => s.projectRoot || s.projectPath).filter(Boolean))].sort()
         return { sessions, availableProjects, isLoading: false }
       })
       syncOpenSessionTabTitles(syncedSessions)
@@ -87,6 +87,7 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
       messageCount: 0,
       projectPath: '',
       workDir: resolvedWorkDir ?? workDir ?? null,
+      projectRoot: resolvedWorkDir ?? workDir ?? null,
       workDirExists: true,
     }
 

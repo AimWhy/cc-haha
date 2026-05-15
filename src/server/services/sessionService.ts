@@ -11,6 +11,7 @@ import * as os from 'node:os'
 import { ApiError } from '../middleware/errorHandler.js'
 import { sanitizePath as sanitizePortablePath } from '../../utils/sessionStoragePortable.js'
 import type { FileHistorySnapshot } from '../../utils/fileHistory.js'
+import { findCanonicalGitRoot } from '../../utils/git.js'
 import { calculateUSDCost, MODEL_COSTS } from '../../utils/modelCost.js'
 import {
   calculateCurrentContextTokenTotal,
@@ -37,6 +38,7 @@ export type SessionListItem = {
   modifiedAt: string
   messageCount: number
   projectPath: string
+  projectRoot: string | null
   workDir: string | null
   workDirExists: boolean
 }
@@ -325,6 +327,42 @@ export class SessionService {
       }
     }
     return undefined
+  }
+
+  private async resolveProjectRootFromEntries(
+    entries: RawEntry[],
+    workDir: string | null,
+    fallbackProjectDir?: string,
+  ): Promise<string | null> {
+    const worktreeSession = this.resolveWorktreeSessionFromEntries(entries)
+    const repository = this.resolveRepositoryFromEntries(entries)
+
+    const candidate = worktreeSession?.originalCwd ||
+      repository?.repoRoot ||
+      workDir ||
+      (fallbackProjectDir ? this.desanitizePath(fallbackProjectDir) : null)
+
+    if (!candidate) return null
+
+    const canonicalCandidate = await this.canonicalizeProjectPath(candidate)
+    const gitRoot = findCanonicalGitRoot(canonicalCandidate)
+    if (gitRoot) return gitRoot
+
+    if (workDir) {
+      const marker = `${path.sep}.claude${path.sep}worktrees${path.sep}`
+      const markerIndex = canonicalCandidate.indexOf(marker)
+      if (markerIndex > 0) return canonicalCandidate.slice(0, markerIndex)
+    }
+
+    return canonicalCandidate
+  }
+
+  private async canonicalizeProjectPath(projectPath: string): Promise<string> {
+    try {
+      return (await fs.realpath(projectPath)).normalize('NFC')
+    } catch {
+      return projectPath.normalize('NFC')
+    }
   }
 
   private countTranscriptMessages(entries: RawEntry[]): number {
@@ -1179,6 +1217,7 @@ export class SessionService {
       try {
         const entries = await this.readJsonlFile(filePath)
         const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
+        const projectRoot = await this.resolveProjectRootFromEntries(entries, workDir, projectDir)
         const workDirExists = await this.pathExists(workDir)
 
         // Count transcript messages only (user + assistant)
@@ -1204,6 +1243,7 @@ export class SessionService {
           modifiedAt: stat.mtime.toISOString(),
           messageCount,
           projectPath: projectDir,
+          projectRoot,
           workDir,
           workDirExists,
         }
@@ -1234,6 +1274,7 @@ export class SessionService {
     )
     const title = this.extractTitle(entries)
     const workDir = this.resolveWorkDirFromEntries(entries, projectDir)
+    const projectRoot = await this.resolveProjectRootFromEntries(entries, workDir, projectDir)
     const workDirExists = await this.pathExists(workDir)
 
     let createdAt = stat.birthtime.toISOString()
@@ -1251,6 +1292,7 @@ export class SessionService {
       modifiedAt: stat.mtime.toISOString(),
       messageCount: messages.length,
       projectPath: projectDir,
+      projectRoot,
       workDir,
       workDirExists,
       messages,

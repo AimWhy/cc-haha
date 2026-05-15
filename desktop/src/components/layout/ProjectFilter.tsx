@@ -99,9 +99,10 @@ export function ProjectFilter({ variant = 'default' }: { variant?: 'default' | '
     const optionsByPath = new Map<string, ProjectOption>()
 
     for (const project of projects) {
-      if (!availableSet.has(project.projectPath)) continue
-      optionsByPath.set(project.projectPath, {
-        projectPath: project.projectPath,
+      const optionPath = availableSet.has(project.realPath) ? project.realPath : project.projectPath
+      if (!availableSet.has(optionPath)) continue
+      optionsByPath.set(optionPath, {
+        projectPath: optionPath,
         title: project.repoName || project.projectName,
         subtitle: project.realPath,
         isGit: project.isGit,

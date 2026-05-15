@@ -431,6 +431,32 @@ describe('SessionService', () => {
     expect(session.title).toBe('Hello Claude')
     expect(session.messageCount).toBe(2) // 1 user + 1 assistant
     expect(session.projectPath).toBe('-tmp-testproject')
+    expect(session.projectRoot).toBe('/tmp/test')
+  })
+
+  it('should expose the source project root for persisted worktree sessions', async () => {
+    const sourceWorkDir = path.join(tmpDir, 'source-repo')
+    const worktreePath = path.join(sourceWorkDir, '.claude', 'worktrees', 'desktop-main-12345678')
+    await fs.mkdir(worktreePath, { recursive: true })
+    const sessionId = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
+    await writeSessionFile(sanitizePath(worktreePath), sessionId, [
+      makeSnapshotEntry(),
+      makeSessionMetaEntry(worktreePath),
+      makeWorktreeStateEntry(sessionId, worktreePath, {
+        originalCwd: sourceWorkDir,
+      }),
+      makeUserEntry('Hello from worktree'),
+    ])
+
+    const result = await service.listSessions()
+
+    expect(result.sessions).toHaveLength(1)
+    expect(result.sessions[0]).toMatchObject({
+      id: sessionId,
+      projectPath: sanitizePath(worktreePath),
+      projectRoot: await fs.realpath(sourceWorkDir),
+      workDir: worktreePath,
+    })
   })
 
   it('should paginate results with limit and offset', async () => {
