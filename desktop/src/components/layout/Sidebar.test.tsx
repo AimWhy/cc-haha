@@ -6,6 +6,15 @@ vi.mock('./ProjectFilter', () => ({
   ProjectFilter: () => <div data-testid="project-filter" />,
 }))
 
+const desktopUiPreferencesApiMock = vi.hoisted(() => ({
+  getPreferences: vi.fn(),
+  updateSidebarPreferences: vi.fn(),
+}))
+
+vi.mock('../../api/desktopUiPreferences', () => ({
+  desktopUiPreferencesApi: desktopUiPreferencesApiMock,
+}))
+
 const openTargetStoreMock = vi.hoisted(() => ({
   ensureTargets: vi.fn(),
   openTarget: vi.fn(),
@@ -36,10 +45,9 @@ vi.mock('../../i18n', () => ({
       'sidebar.openInFinder': 'Open in Finder',
       'sidebar.openInFinderFailed': 'Could not open the project in Finder.',
       'sidebar.openInFinderUnavailable': 'No file manager is available.',
-      'sidebar.createPermanentWorktree': 'Create Permanent Worktree',
-      'sidebar.renameProject': 'Rename Project',
-      'sidebar.archiveSessions': 'Archive Conversations',
-      'sidebar.removeProject': 'Remove',
+      'sidebar.hideProjectFromSidebar': 'Remove from Sidebar',
+      'sidebar.restoreProjectToSidebar': 'Restore to Sidebar',
+      'sidebar.projectHidden': '{project} was removed from the sidebar.',
       'sidebar.newSessionInProject': 'New session in {project}',
       'sidebar.showMoreSessions': 'Show {count} more',
       'sidebar.showFewerSessions': 'Show fewer',
@@ -91,6 +99,7 @@ import type { SessionListItem } from '../../types/session'
 
 const PROJECT_ORDER_STORAGE_KEY = 'cc-haha-sidebar-project-order'
 const PROJECT_PINNED_STORAGE_KEY = 'cc-haha-sidebar-pinned-projects'
+const PROJECT_HIDDEN_STORAGE_KEY = 'cc-haha-sidebar-hidden-projects'
 
 function makeSession(
   id: string,
@@ -150,11 +159,26 @@ describe('Sidebar', () => {
     deleteSession.mockReset()
     deleteSessions.mockReset()
     addToast.mockReset()
+    desktopUiPreferencesApiMock.getPreferences.mockReset()
+    desktopUiPreferencesApiMock.updateSidebarPreferences.mockReset()
+    desktopUiPreferencesApiMock.getPreferences.mockRejectedValue(new Error('server unavailable'))
+    desktopUiPreferencesApiMock.updateSidebarPreferences.mockResolvedValue({
+      ok: true,
+      preferences: {
+        schemaVersion: 1,
+        sidebar: {
+          projectOrder: [],
+          pinnedProjects: [],
+          hiddenProjects: [],
+        },
+      },
+    })
     openTargetStoreMock.ensureTargets.mockReset()
     openTargetStoreMock.openTarget.mockReset()
     openTargetStoreMock.targets = [{ id: 'finder', kind: 'file_manager', label: 'Finder', platform: 'darwin' }]
     window.localStorage.removeItem(PROJECT_ORDER_STORAGE_KEY)
     window.localStorage.removeItem(PROJECT_PINNED_STORAGE_KEY)
+    window.localStorage.removeItem(PROJECT_HIDDEN_STORAGE_KEY)
 
     useTabStore.setState({ tabs: [], activeTabId: null })
     useSessionStore.setState({
@@ -187,6 +211,7 @@ describe('Sidebar', () => {
     useTabStore.setState({ tabs: [], activeTabId: null })
     window.localStorage.removeItem(PROJECT_ORDER_STORAGE_KEY)
     window.localStorage.removeItem(PROJECT_PINNED_STORAGE_KEY)
+    window.localStorage.removeItem(PROJECT_HIDDEN_STORAGE_KEY)
   })
 
   it('opens a new tab when creating a session from the sidebar', async () => {
@@ -396,10 +421,10 @@ describe('Sidebar', () => {
 
     expect(screen.getByRole('menuitem', { name: 'Pin Project' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Open in Finder' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Create Permanent Worktree' })).toBeDisabled()
-    expect(screen.getByRole('menuitem', { name: 'Rename Project' })).toBeDisabled()
-    expect(screen.getByRole('menuitem', { name: 'Archive Conversations' })).toBeDisabled()
-    expect(screen.getByRole('menuitem', { name: 'Remove' })).toBeDisabled()
+    expect(screen.getByRole('menuitem', { name: 'Remove from Sidebar' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Create Permanent Worktree' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Rename Project' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Archive Conversations' })).not.toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(screen.getByRole('menuitem', { name: 'Open in Finder' }))
@@ -429,6 +454,133 @@ describe('Sidebar', () => {
       expect(projectGroupNames().slice(0, 2)).toEqual(['beta', 'alpha'])
     })
     expect(JSON.parse(window.localStorage.getItem(PROJECT_PINNED_STORAGE_KEY) ?? '[]')).toEqual(['/workspace/beta'])
+  })
+
+  it('removes a project from the sidebar without deleting its sessions', async () => {
+    const base = new Date('2026-05-15T10:00:00.000Z').getTime()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', new Date(base).toISOString()),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', new Date(base - 20_000).toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project actions for beta' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove from Sidebar' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('beta')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(deleteSessions).not.toHaveBeenCalled()
+    expect(deleteSession).not.toHaveBeenCalled()
+    expect(JSON.parse(window.localStorage.getItem(PROJECT_HIDDEN_STORAGE_KEY) ?? '[]')).toEqual(['/workspace/beta'])
+    expect(addToast).toHaveBeenCalledWith({
+      type: 'info',
+      message: 'beta was removed from the sidebar.',
+    })
+  })
+
+  it('restores hidden project state from localStorage and shows selected hidden projects for recovery', () => {
+    window.localStorage.setItem(PROJECT_HIDDEN_STORAGE_KEY, JSON.stringify(['/workspace/beta']))
+    const now = new Date().toISOString()
+    useSessionStore.setState({
+      selectedProjects: ['/workspace/beta'],
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', now),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', now),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+    expect(screen.getByText('beta')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project actions for beta' }))
+    expect(screen.getByRole('menuitem', { name: 'Restore to Sidebar' })).toBeInTheDocument()
+  })
+
+  it('uses server sidebar preferences across browser and desktop storage contexts', async () => {
+    desktopUiPreferencesApiMock.getPreferences.mockResolvedValueOnce({
+      exists: true,
+      preferences: {
+        schemaVersion: 1,
+        sidebar: {
+          projectOrder: ['/workspace/beta', '/workspace/alpha'],
+          pinnedProjects: ['/workspace/beta'],
+          hiddenProjects: ['/workspace/alpha'],
+        },
+      },
+    })
+    const now = new Date().toISOString()
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', now),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', now),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    await waitFor(() => {
+      expect(screen.queryByText('alpha')).not.toBeInTheDocument()
+      expect(screen.getByText('beta')).toBeInTheDocument()
+    })
+    expect(JSON.parse(window.localStorage.getItem(PROJECT_ORDER_STORAGE_KEY) ?? '[]')).toEqual([
+      '/workspace/beta',
+      '/workspace/alpha',
+    ])
+    expect(JSON.parse(window.localStorage.getItem(PROJECT_PINNED_STORAGE_KEY) ?? '[]')).toEqual(['/workspace/beta'])
+    expect(JSON.parse(window.localStorage.getItem(PROJECT_HIDDEN_STORAGE_KEY) ?? '[]')).toEqual(['/workspace/alpha'])
+  })
+
+  it('migrates cached local sidebar preferences when the server file is missing after update', async () => {
+    desktopUiPreferencesApiMock.getPreferences.mockResolvedValueOnce({
+      exists: false,
+      preferences: {
+        schemaVersion: 1,
+        sidebar: {
+          projectOrder: [],
+          pinnedProjects: [],
+          hiddenProjects: [],
+        },
+      },
+    })
+    window.localStorage.setItem(PROJECT_HIDDEN_STORAGE_KEY, JSON.stringify(['/workspace/beta']))
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', new Date().toISOString()),
+        makeSession('beta-1', 'Beta Session', '/workspace/beta', new Date().toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    await waitFor(() => {
+      expect(desktopUiPreferencesApiMock.updateSidebarPreferences).toHaveBeenCalledWith({
+        projectOrder: [],
+        pinnedProjects: [],
+        hiddenProjects: ['/workspace/beta'],
+      })
+    })
+    expect(screen.queryByText('beta')).not.toBeInTheDocument()
+  })
+
+  it('ignores corrupt hidden project storage for backward compatibility', () => {
+    window.localStorage.setItem(PROJECT_HIDDEN_STORAGE_KEY, '{bad json')
+    useSessionStore.setState({
+      sessions: [
+        makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', new Date().toISOString()),
+      ],
+    })
+
+    render(<Sidebar />)
+
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Alpha Session/ })).toBeInTheDocument()
   })
 
   it('keeps persisted worktree sessions under the source project group', () => {

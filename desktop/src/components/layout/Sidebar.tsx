@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Archive, ChevronDown, Folder, FolderOpen, GitBranch, MoreHorizontal, Pencil, Pin, PinOff, RefreshCw, SquarePen, X } from 'lucide-react'
+import { ChevronDown, Folder, FolderOpen, MoreHorizontal, Pin, PinOff, RefreshCw, RotateCcw, SquarePen, X } from 'lucide-react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
@@ -9,6 +9,7 @@ import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
 import { useOpenTargetStore } from '../../stores/openTargetStore'
+import { desktopUiPreferencesApi, type SidebarProjectPreferences } from '../../api/desktopUiPreferences'
 
 const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
 const isWindows = typeof navigator !== 'undefined' && /Win/.test(navigator.platform)
@@ -16,6 +17,7 @@ const SESSION_LIST_AUTO_REFRESH_MS = 30_000
 const SESSION_LIST_FOCUS_REFRESH_MIN_MS = 5_000
 const PROJECT_ORDER_STORAGE_KEY = 'cc-haha-sidebar-project-order'
 const PROJECT_PINNED_STORAGE_KEY = 'cc-haha-sidebar-pinned-projects'
+const PROJECT_HIDDEN_STORAGE_KEY = 'cc-haha-sidebar-hidden-projects'
 const PROJECT_GROUP_VISIBLE_COUNT = 6
 const PROJECT_GROUP_SCROLL_COUNT = 12
 
@@ -68,9 +70,11 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   const [collapsedProjectKeys, setCollapsedProjectKeys] = useState<Set<string>>(new Set())
   const [projectOrder, setProjectOrder] = useState<string[]>(() => readStoredProjectOrder())
   const [pinnedProjectKeys, setPinnedProjectKeys] = useState<Set<string>>(() => readStoredProjectPins())
+  const [hiddenProjectKeys, setHiddenProjectKeys] = useState<Set<string>>(() => readStoredProjectHidden())
   const [draggingProjectKey, setDraggingProjectKey] = useState<string | null>(null)
   const [projectDropTarget, setProjectDropTarget] = useState<{ key: string; position: 'before' | 'after' } | null>(null)
   const suppressProjectClickRef = useRef<string | null>(null)
+  const sidebarPreferenceRevisionRef = useRef(0)
   const refreshSessionsNow = useSessionListAutoRefresh(fetchSessions)
 
   useEffect(() => {
@@ -106,6 +110,12 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
     () => applyProjectOrder(projectGroups, projectOrder, pinnedProjectKeys),
     [projectGroups, projectOrder, pinnedProjectKeys],
   )
+  const visibleProjectGroups = useMemo(() => {
+    if (hiddenProjectKeys.size === 0) return orderedProjectGroups
+    return orderedProjectGroups.filter((project) => (
+      !hiddenProjectKeys.has(project.key) || selectedProjects.includes(project.key)
+    ))
+  }, [hiddenProjectKeys, orderedProjectGroups, selectedProjects])
   const showInitialLoading = isLoading && sessions.length === 0
   const filteredSessionIds = useMemo(() => filteredSessions.map((session) => session.id), [filteredSessions])
   const selectedCount = selectedSessionIds.size
@@ -123,6 +133,47 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   const closeMobileDrawer = useCallback(() => {
     if (isMobile) onRequestClose?.()
   }, [isMobile, onRequestClose])
+
+  const applySidebarProjectPreferences = useCallback((preferences: SidebarProjectPreferences) => {
+    setProjectOrder(preferences.projectOrder)
+    setPinnedProjectKeys(new Set(preferences.pinnedProjects))
+    setHiddenProjectKeys(new Set(preferences.hiddenProjects))
+  }, [])
+
+  const persistSidebarProjectPreferences = useCallback((preferences: SidebarProjectPreferences) => {
+    const normalized = normalizeSidebarProjectPreferences(preferences)
+    sidebarPreferenceRevisionRef.current += 1
+    writeCachedSidebarProjectPreferences(normalized)
+    void desktopUiPreferencesApi.updateSidebarPreferences(normalized).catch(() => undefined)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const startRevision = sidebarPreferenceRevisionRef.current
+
+    void desktopUiPreferencesApi.getPreferences()
+      .then((response) => {
+        if (cancelled || startRevision !== sidebarPreferenceRevisionRef.current) return
+
+        const localPreferences = readCachedSidebarProjectPreferences()
+        const serverPreferences = normalizeSidebarProjectPreferences(response.preferences.sidebar)
+        const effectivePreferences = response.exists ? serverPreferences : localPreferences
+
+        applySidebarProjectPreferences(effectivePreferences)
+        writeCachedSidebarProjectPreferences(effectivePreferences)
+
+        if (!response.exists && hasSidebarProjectPreferences(localPreferences)) {
+          void desktopUiPreferencesApi.updateSidebarPreferences(localPreferences).catch(() => undefined)
+        }
+      })
+      .catch(() => {
+        // The sidebar remains usable with the local cache if the server is still booting.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [applySidebarProjectPreferences])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, id: string) => {
     e.preventDefault()
@@ -180,9 +231,9 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
       dropPosition,
     )
     setProjectOrder(nextOrder)
-    writeStoredProjectOrder(nextOrder)
+    persistSidebarProjectPreferences(buildSidebarProjectPreferences(nextOrder, pinnedProjectKeys, hiddenProjectKeys))
     clearProjectDragState()
-  }, [clearProjectDragState, draggingProjectKey, orderedProjectGroups, projectDropTarget])
+  }, [clearProjectDragState, draggingProjectKey, hiddenProjectKeys, orderedProjectGroups, persistSidebarProjectPreferences, pinnedProjectKeys, projectDropTarget])
 
   const createSessionForWorkDir = useCallback(async (workDir?: string) => {
     try {
@@ -207,10 +258,31 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
       } else {
         next.add(projectKey)
       }
-      writeStoredProjectPins(next)
+      persistSidebarProjectPreferences(buildSidebarProjectPreferences(projectOrder, next, hiddenProjectKeys))
       return next
     })
-  }, [])
+  }, [hiddenProjectKeys, persistSidebarProjectPreferences, projectOrder])
+
+  const toggleHiddenProject = useCallback((project: ProjectGroup) => {
+    const wasHidden = hiddenProjectKeys.has(project.key)
+    setProjectContextMenu(null)
+    setHiddenProjectKeys((current) => {
+      const next = new Set(current)
+      if (next.has(project.key)) {
+        next.delete(project.key)
+      } else {
+        next.add(project.key)
+      }
+      persistSidebarProjectPreferences(buildSidebarProjectPreferences(projectOrder, pinnedProjectKeys, next))
+      return next
+    })
+    if (!wasHidden) {
+      addToast({
+        type: 'info',
+        message: t('sidebar.projectHidden', { project: project.title }),
+      })
+    }
+  }, [addToast, hiddenProjectKeys, persistSidebarProjectPreferences, pinnedProjectKeys, projectOrder, t])
 
   const openProjectInFinder = useCallback(async (project: ProjectGroup) => {
     setProjectContextMenu(null)
@@ -611,12 +683,12 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
                   {searchQuery ? t('sidebar.noMatching') : t('sidebar.noSessions')}
                 </div>
               )}
-              {orderedProjectGroups.length > 0 && (
+              {visibleProjectGroups.length > 0 && (
                 <div className="px-1.5 pb-2 pt-1 text-[12px] font-semibold tracking-normal text-[var(--color-text-primary)]">
                   {t('sidebar.projects')}
                 </div>
               )}
-              {orderedProjectGroups.map((project) => {
+              {visibleProjectGroups.map((project) => {
                 const projectCollapsed = collapsedProjectKeys.has(project.key)
                 const sessionsExpanded = expandedProjectKeys.has(project.key)
                 const visibleItems = projectCollapsed
@@ -884,6 +956,7 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
         const project = orderedProjectGroups.find((group) => group.key === projectContextMenu.key)
         if (!project) return null
         const pinned = pinnedProjectKeys.has(project.key)
+        const hidden = hiddenProjectKeys.has(project.key)
         return (
           <div
             role="menu"
@@ -903,17 +976,12 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
             >
               {t('sidebar.openInFinder')}
             </ProjectMenuItem>
-            <ProjectMenuItem icon={<GitBranch size={18} aria-hidden="true" />} disabled>
-              {t('sidebar.createPermanentWorktree')}
-            </ProjectMenuItem>
-            <ProjectMenuItem icon={<Pencil size={18} aria-hidden="true" />} disabled>
-              {t('sidebar.renameProject')}
-            </ProjectMenuItem>
-            <ProjectMenuItem icon={<Archive size={18} aria-hidden="true" />} disabled>
-              {t('sidebar.archiveSessions')}
-            </ProjectMenuItem>
-            <ProjectMenuItem icon={<X size={18} aria-hidden="true" />} disabled danger>
-              {t('sidebar.removeProject')}
+            <ProjectMenuItem
+              icon={hidden ? <RotateCcw size={18} aria-hidden="true" /> : <X size={18} aria-hidden="true" />}
+              onClick={() => toggleHiddenProject(project)}
+              danger={!hidden}
+            >
+              {t(hidden ? 'sidebar.restoreProjectToSidebar' : 'sidebar.hideProjectFromSidebar')}
             </ProjectMenuItem>
           </div>
         )
@@ -1125,6 +1193,80 @@ function writeStoredProjectPins(projectKeys: Set<string>): void {
   } catch {
     // Sidebar pinning is a UI preference; ignore storage failures.
   }
+}
+
+function readStoredProjectHidden(): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set()
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PROJECT_HIDDEN_STORAGE_KEY) ?? '[]')
+    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function writeStoredProjectHidden(projectKeys: Set<string>): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(PROJECT_HIDDEN_STORAGE_KEY, JSON.stringify([...projectKeys]))
+  } catch {
+    // Hidden projects are a local UI preference; ignore storage failures.
+  }
+}
+
+function buildSidebarProjectPreferences(
+  projectOrder: string[],
+  pinnedProjectKeys: Set<string>,
+  hiddenProjectKeys: Set<string>,
+): SidebarProjectPreferences {
+  return normalizeSidebarProjectPreferences({
+    projectOrder,
+    pinnedProjects: [...pinnedProjectKeys],
+    hiddenProjects: [...hiddenProjectKeys],
+  })
+}
+
+function readCachedSidebarProjectPreferences(): SidebarProjectPreferences {
+  return {
+    projectOrder: readStoredProjectOrder(),
+    pinnedProjects: [...readStoredProjectPins()],
+    hiddenProjects: [...readStoredProjectHidden()],
+  }
+}
+
+function writeCachedSidebarProjectPreferences(preferences: SidebarProjectPreferences): void {
+  const normalized = normalizeSidebarProjectPreferences(preferences)
+  writeStoredProjectOrder(normalized.projectOrder)
+  writeStoredProjectPins(new Set(normalized.pinnedProjects))
+  writeStoredProjectHidden(new Set(normalized.hiddenProjects))
+}
+
+function normalizeSidebarProjectPreferences(preferences: Partial<SidebarProjectPreferences> | undefined): SidebarProjectPreferences {
+  return {
+    projectOrder: normalizeProjectKeyList(preferences?.projectOrder),
+    pinnedProjects: normalizeProjectKeyList(preferences?.pinnedProjects),
+    hiddenProjects: normalizeProjectKeyList(preferences?.hiddenProjects),
+  }
+}
+
+function normalizeProjectKeyList(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const value of values) {
+    if (typeof value !== 'string' || value.length === 0 || seen.has(value)) continue
+    seen.add(value)
+    normalized.push(value)
+  }
+
+  return normalized
+}
+
+function hasSidebarProjectPreferences(preferences: SidebarProjectPreferences): boolean {
+  return preferences.projectOrder.length > 0
+    || preferences.pinnedProjects.length > 0
+    || preferences.hiddenProjects.length > 0
 }
 
 function getVisibleProjectSessions(
