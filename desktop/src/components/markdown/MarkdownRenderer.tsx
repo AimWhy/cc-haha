@@ -1,4 +1,5 @@
 import { useMemo, useCallback } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import DOMPurify from 'dompurify'
 import { marked, type Tokens } from 'marked'
 import { CodeViewer } from '../chat/CodeViewer'
@@ -9,6 +10,7 @@ type Props = {
   content: string
   variant?: 'default' | 'document' | 'compact'
   className?: string
+  onLinkClick?: (href: string, event: ReactMouseEvent<HTMLDivElement>) => boolean | void
 }
 
 type CodeBlock = {
@@ -159,7 +161,7 @@ function getProseClasses(variant: 'default' | 'document' | 'compact', className?
     .join(' ')
 }
 
-export function MarkdownRenderer({ content, variant = 'default', className }: Props) {
+export function MarkdownRenderer({ content, variant = 'default', className, onLinkClick }: Props) {
   const { html, codeBlocks } = useMemo(() => parseMarkdown(content), [content])
   const proseClasses = useMemo(
     () => getProseClasses(variant, className),
@@ -194,10 +196,20 @@ export function MarkdownRenderer({ content, variant = 'default', className }: Pr
     return result
   }, [html, codeBlocks])
 
-  const handleClick = useCallback(async (event: React.MouseEvent<HTMLDivElement>) => {
+  const handleClick = useCallback(async (event: ReactMouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null
     const button = target?.closest<HTMLButtonElement>('[data-copy-code]')
-    if (!button) return
+    if (!button) {
+      const link = target?.closest<HTMLAnchorElement>('a[href]')
+      if (!link || !onLinkClick) return
+
+      const handled = onLinkClick(link.getAttribute('href') ?? '', event)
+      if (handled) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+      return
+    }
 
     const text = button.getAttribute('data-copy-code')
     if (!text) return
@@ -210,7 +222,7 @@ export function MarkdownRenderer({ content, variant = 'default', className }: Pr
     window.setTimeout(() => {
       button.textContent = original
     }, 1500)
-  }, [])
+  }, [onLinkClick])
 
   if (codeBlocks.length === 0) {
     const cleanHtml = enhanceMarkdownHtml(html)

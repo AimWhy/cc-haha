@@ -127,6 +127,23 @@ describe('MarkdownRenderer', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'))
   })
 
+  it('lets callers intercept markdown link clicks', () => {
+    const onLinkClick = vi.fn().mockReturnValue(true)
+    render(
+      <MarkdownRenderer
+        content={'[Manual](notes/manual.md)'}
+        onLinkClick={onLinkClick}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('link', { name: 'Manual' }))
+
+    expect(onLinkClick).toHaveBeenCalledWith(
+      'notes/manual.md',
+      expect.objectContaining({ type: 'click' }),
+    )
+  })
+
   it('copies enhanced markdown button text with the legacy clipboard fallback', async () => {
     const originalClipboard = navigator.clipboard
     const originalExecCommand = document.execCommand

@@ -138,6 +138,19 @@ export function MemorySettings() {
     void openFile(selectedProjectId, file.path)
   }
 
+  const handlePreviewLinkClick = (href: string): boolean => {
+    if (!selectedProjectId || !selectedFile) return false
+    const targetPath = resolveMarkdownMemoryLink(
+      href,
+      selectedFile.path,
+      selectedProject?.memoryDir,
+      files,
+    )
+    if (!targetPath || targetPath === selectedFile.path) return false
+    void openFile(selectedProjectId, targetPath)
+    return true
+  }
+
   const toggleFolder = (path: string) => {
     setCollapsedFolders((previous) => {
       const next = new Set(previous)
@@ -313,7 +326,11 @@ export function MemorySettings() {
                   <span>{t('settings.memory.rendered')}</span>
                 </div>
                 <div className="p-6">
-                  <MarkdownRenderer content={previewContent || ' '} variant="document" />
+                  <MarkdownRenderer
+                    content={previewContent || ' '}
+                    variant="document"
+                    onLinkClick={handlePreviewLinkClick}
+                  />
                 </div>
               </div>
             </div>
@@ -441,7 +458,7 @@ function ProjectTreeRow({
   const t = useTranslation()
   const display = projectDisplayName(project.label)
   return (
-    <div className="mb-0.5">
+    <div className="mb-1">
       <button
         type="button"
         data-testid="memory-project-row"
@@ -449,9 +466,9 @@ function ProjectTreeRow({
         title={project.label}
         aria-expanded={expanded}
         aria-label={t('settings.memory.toggleFolder', { name: display })}
-        className={`group flex min-h-9 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)] ${
+        className={`group flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)] ${
           active
-            ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
+            ? 'bg-[var(--color-memory-surface)] text-[var(--color-text-primary)] ring-1 ring-inset ring-[var(--color-memory-border)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
         }`}
       >
@@ -463,7 +480,7 @@ function ProjectTreeRow({
       </button>
 
       {expanded ? (
-        <div className="ml-[18px] border-l border-[var(--color-border)] pl-2">
+        <div className="ml-[18px] mt-1.5 border-l border-[var(--color-border)] pl-2.5">
           {loading ? (
             <div className="px-2 py-1.5 text-xs text-[var(--color-text-tertiary)]">{t('common.loading')}</div>
           ) : fileTree.length === 0 ? (
@@ -504,10 +521,10 @@ function FileRow({
       type="button"
       onClick={onSelect}
       style={{ paddingLeft: `${4 + Math.max(depth - 1, 0) * 16}px` }}
-      className={`mb-0.5 flex min-h-8 w-full items-center gap-1.5 rounded-sm py-1 pr-2 text-left transition-colors focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)] ${
+      className={`mb-1 flex min-h-8 w-full items-center gap-1.5 rounded-md border py-1 pr-2 text-left transition-colors focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)] ${
         active
-          ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
-          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
+          ? 'border-[var(--color-memory-border)] bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
+          : 'border-transparent text-[var(--color-text-secondary)] hover:border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
       }`}
     >
       <FileText size={14} className="shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
@@ -553,7 +570,7 @@ function MemoryTreeRow({
         onClick={() => onToggleFolder(node.path)}
         aria-expanded={!isCollapsed}
         aria-label={t('settings.memory.toggleFolder', { name: node.name })}
-        className="mb-0.5 flex min-h-8 w-full items-center gap-1.5 rounded-sm py-1 pr-2 text-left text-sm text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)]"
+        className="mb-1 flex min-h-8 w-full items-center gap-1.5 rounded-md border border-transparent py-1 pr-2 text-left text-sm text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-border)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)]"
         style={{ paddingLeft: `${4 + Math.max(depth - 1, 0) * 16}px` }}
       >
         {isCollapsed ? <ChevronRight size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
@@ -561,7 +578,7 @@ function MemoryTreeRow({
         <span className="min-w-0 flex-1 truncate font-medium">{node.name}</span>
       </button>
       {!isCollapsed ? (
-        <div className="ml-[18px] border-l border-[var(--color-border)] pl-2">
+        <div className="ml-[18px] mt-1 border-l border-[var(--color-border)] pl-2.5">
           {node.children.map((child) => (
             <MemoryTreeRow
               key={child.id}
@@ -664,6 +681,70 @@ function resolveMemoryFileTarget(projects: MemoryProject[], absolutePath: string
     }
   }
   return null
+}
+
+function resolveMarkdownMemoryLink(
+  href: string,
+  currentPath: string,
+  projectMemoryDir: string | undefined,
+  files: MemoryFile[],
+): string | null {
+  const rawHref = safeDecodeUriComponent(href.trim())
+  if (!rawHref || rawHref.startsWith('#')) return null
+
+  let target = rawHref
+  try {
+    const url = new URL(rawHref)
+    if (url.protocol !== 'file:') return null
+    target = url.pathname
+  } catch {
+    if (/^[a-z][a-z\d+.-]*:/i.test(rawHref)) return null
+  }
+
+  target = stripMarkdownLinkSuffix(target)
+  if (!target || !target.endsWith('.md')) return null
+
+  const absoluteTarget = normalizeFsPath(target)
+  const memoryDir = projectMemoryDir ? normalizeFsPath(projectMemoryDir) : ''
+  if (memoryDir) {
+    if (absoluteTarget === memoryDir) return DEFAULT_MEMORY_PATH
+    if (absoluteTarget.startsWith(`${memoryDir}/`)) {
+      return findMemoryFileByPath(files, absoluteTarget.slice(memoryDir.length + 1))
+    }
+  }
+
+  if (target.startsWith('/')) return null
+
+  const currentParts = currentPath.split('/').filter(Boolean)
+  const baseParts = currentParts.slice(0, -1)
+  const resolvedParts: string[] = []
+  for (const part of [...baseParts, ...target.split('/')]) {
+    if (!part || part === '.') continue
+    if (part === '..') {
+      resolvedParts.pop()
+      continue
+    }
+    resolvedParts.push(part)
+  }
+
+  return findMemoryFileByPath(files, resolvedParts.join('/'))
+}
+
+function safeDecodeUriComponent(value: string): string {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
+function stripMarkdownLinkSuffix(value: string): string {
+  return value.split('#')[0]?.split('?')[0]?.trim() ?? ''
+}
+
+function findMemoryFileByPath(files: MemoryFile[], path: string): string | null {
+  const normalized = normalizeFsPath(path)
+  return files.find((file) => normalizeFsPath(file.path) === normalized)?.path ?? null
 }
 
 type MemoryTreeNode =

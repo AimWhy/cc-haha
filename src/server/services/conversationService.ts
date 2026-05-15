@@ -22,11 +22,15 @@ import {
   buildClaudeCliArgs,
   resolveClaudeCliLauncher,
 } from '../../utils/desktopBundledCli.js'
+import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
+import { findCanonicalGitRoot } from '../../utils/git.js'
+import { sanitizePath } from '../../utils/path.js'
 
 const MAX_CAPTURED_PROCESS_LINES = 80
 const MAX_CAPTURED_SDK_MESSAGES = 40
 const MAX_CAPTURED_SDK_SUMMARY = 20
 const CONTROL_READY_POLL_MS = 50
+const AUTO_MEMORY_DIRNAME = 'memory'
 
 type AttachmentRef = {
   type: 'file' | 'image'
@@ -900,6 +904,7 @@ export class ConversationService {
       CLAUDE_CODE_ENABLE_TASKS: '1',
       CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING: '1',
       CLAUDE_CODE_DIAGNOSTICS_FILE: cliDiagnosticsPath,
+      CLAUDE_COWORK_MEMORY_PATH_OVERRIDE: this.resolveDesktopAutoMemoryPath(workDir),
       CALLER_DIR: workDir,
       PWD: workDir,
       ...(sdkUrl
@@ -931,6 +936,20 @@ export class ConversationService {
         ? await this.buildOfficialOAuthEnv()
         : {}),
     }
+  }
+
+  private resolveDesktopAutoMemoryPath(workDir: string): string {
+    const memoryProjectRoot = fs.existsSync(workDir)
+      ? findCanonicalGitRoot(workDir) ?? workDir
+      : workDir
+    return (
+      path.join(
+        getClaudeConfigHomeDir(),
+        'projects',
+        sanitizePath(memoryProjectRoot),
+        AUTO_MEMORY_DIRNAME,
+      ) + path.sep
+    ).normalize('NFC')
   }
 
   /**

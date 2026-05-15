@@ -22,9 +22,28 @@ vi.mock('../api/memory', () => ({
 }))
 
 vi.mock('../components/markdown/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => (
-    <div data-testid="markdown-preview">{content}</div>
-  ),
+  MarkdownRenderer: ({ content, onLinkClick }: { content: string; onLinkClick?: (href: string) => boolean | void }) => {
+    const match = content.match(/\[([^\]]+)\]\(([^)]+)\)/)
+    const linkText = match?.[1]
+    const linkHref = match?.[2]
+    return (
+      <div data-testid="markdown-preview">
+        {content}
+        {linkText && linkHref ? (
+          <a
+            href={linkHref}
+            onClick={(event) => {
+              if (onLinkClick?.(linkHref)) {
+                event.preventDefault()
+              }
+            }}
+          >
+            {linkText}
+          </a>
+        ) : null}
+      </div>
+    )
+  },
 }))
 
 describe('MemorySettings', () => {
@@ -234,6 +253,51 @@ describe('MemorySettings', () => {
 
     expect(screen.getByText('Manual')).toBeInTheDocument()
     fireEvent.click(screen.getByText('Manual'))
+
+    await waitFor(() => {
+      expect(memoryApiMock.readFile).toHaveBeenCalledWith('-workspace-demo', 'notes/manual.md')
+    })
+    expect(await screen.findByLabelText('Editor')).toHaveValue('# Manual\n')
+  })
+
+  it('opens linked memory markdown files from the rendered preview', async () => {
+    memoryApiMock.listFiles.mockResolvedValue({
+      files: [
+        {
+          path: 'MEMORY.md',
+          name: 'MEMORY.md',
+          title: 'MEMORY.md',
+          bytes: 48,
+          updatedAt: '2026-05-01T00:00:00.000Z',
+          type: 'project',
+          description: 'Project conventions.',
+          isIndex: true,
+        },
+        {
+          path: 'notes/manual.md',
+          name: 'manual.md',
+          title: 'Manual',
+          bytes: 24,
+          updatedAt: '2026-05-01T00:02:00.000Z',
+          type: 'guidance',
+          isIndex: false,
+        },
+      ],
+    })
+    memoryApiMock.readFile.mockImplementation((_projectId: string, path: string) => Promise.resolve({
+      file: {
+        path,
+        content: path === 'notes/manual.md'
+          ? '# Manual\n'
+          : '# Project Memory\n\n- [Manual](notes/manual.md)\n',
+        updatedAt: '2026-05-01T00:00:00.000Z',
+        bytes: 48,
+      },
+    }))
+
+    render(<MemorySettings />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Manual' }))
 
     await waitFor(() => {
       expect(memoryApiMock.readFile).toHaveBeenCalledWith('-workspace-demo', 'notes/manual.md')
