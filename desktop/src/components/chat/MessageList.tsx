@@ -646,10 +646,10 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     lastTailMessageIdBySessionRef.current.set(resolvedSessionId, tailMessageId)
     if (previousTailMessageId === undefined || previousTailMessageId === tailMessageId) return
 
-    if (tailMessageType === 'user_text' && chatState !== 'idle') {
+    if (tailMessageType === 'user_text') {
       scrollToBottom('auto')
     }
-  }, [chatState, resolvedSessionId, scrollToBottom, tailMessageId, tailMessageType])
+  }, [resolvedSessionId, scrollToBottom, tailMessageId, tailMessageType])
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) {

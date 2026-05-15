@@ -1342,6 +1342,98 @@ describe('MessageList nested tool calls', () => {
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
   })
 
+  it('jumps to the latest message when a sent prompt lands before chat state changes', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '历史消息',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: '历史回复',
+              timestamp: 2,
+            },
+          ],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLDivElement
+    let scrollTop = 120
+    Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1000 })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    scrollIntoView.mockClear()
+    await waitForProgrammaticScrollReset()
+    fireEvent.scroll(scroller)
+    expect(screen.getByRole('button', { name: 'Latest' })).toBeTruthy()
+
+    act(() => {
+      useChatStore.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          [ACTIVE_TAB]: {
+            ...state.sessions[ACTIVE_TAB]!,
+            chatState: 'idle',
+            messages: [
+              ...state.sessions[ACTIVE_TAB]!.messages,
+              {
+                id: 'user-2',
+                type: 'user_text',
+                content: '刚发送的问题',
+                timestamp: 3,
+              },
+            ],
+          },
+        },
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('刚发送的问题')).toBeTruthy()
+    })
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(600)
+    expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
+
+    act(() => {
+      useChatStore.setState((state) => ({
+        sessions: {
+          ...state.sessions,
+          [ACTIVE_TAB]: {
+            ...state.sessions[ACTIVE_TAB]!,
+            chatState: 'thinking',
+          },
+        },
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('刚发送的问题')).toBeTruthy()
+    })
+    expect(scrollTop).toBe(600)
+  })
+
   it('keeps user actions anchored to the right bubble and assistant actions to the left bubble', () => {
     useChatStore.setState({
       sessions: {
