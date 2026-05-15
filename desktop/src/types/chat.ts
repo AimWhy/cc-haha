@@ -164,6 +164,19 @@ export type MemoryEventFile = {
   summary?: string
 }
 
+export type GoalEventAction = 'created' | 'replaced' | 'status' | 'paused' | 'resumed' | 'completed' | 'cleared' | 'message'
+
+export type ActiveGoalState = {
+  action: Exclude<GoalEventAction, 'cleared' | 'message'>
+  status?: string
+  objective?: string
+  budget?: string
+  elapsed?: string
+  continuations?: string
+  message?: string
+  updatedAt: number
+}
+
 // ─── UI Message model (rendered in MessageList) ───────────────────
 
 export type TaskSummaryItem = {
@@ -180,6 +193,18 @@ export type UIMessage =
   | { id: string; type: 'tool_use'; toolName: string; toolUseId: string; input: unknown; timestamp: number; parentToolUseId?: string }
   | { id: string; type: 'tool_result'; toolUseId: string; content: unknown; isError: boolean; timestamp: number; parentToolUseId?: string }
   | { id: string; type: 'system'; content: string; timestamp: number }
+  | {
+      id: string
+      type: 'goal_event'
+      action: GoalEventAction
+      status?: string
+      objective?: string
+      budget?: string
+      elapsed?: string
+      continuations?: string
+      message?: string
+      timestamp: number
+    }
   | {
       id: string
       type: 'memory_event'

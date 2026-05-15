@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  accountThreadGoalUsage,
   buildGoalContinuationPrompt,
   clearThreadGoal,
   formatGoalStatus,
@@ -35,6 +36,30 @@ describe('goalState', () => {
     expect(formatGoalStatus(goal, 61_000)).toContain('Goal: active')
     expect(formatGoalStatus(goal, 61_000)).toContain('Budget: 0 / 10,000 tokens')
     expect(formatGoalStatus(goal, 61_000)).toContain('Elapsed: 1m')
+  })
+
+  test('setting a new goal replaces the existing goal and resets accounting', () => {
+    const first = setThreadGoal('thread-replace', {
+      objective: 'first target',
+      tokenBudget: 10_000,
+      now: 1_000,
+    })
+    accountThreadGoalUsage('thread-replace', 2_500, 2_000)
+    updateThreadGoalStatus('thread-replace', 'paused', 3_000)
+
+    const replaced = setThreadGoal('thread-replace', {
+      objective: 'second target',
+      now: 4_000,
+    })
+
+    expect(replaced.goalId).not.toBe(first.goalId)
+    expect(replaced.objective).toBe('second target')
+    expect(replaced.status).toBe('active')
+    expect(replaced.tokenBudget).toBeNull()
+    expect(replaced.tokensUsed).toBe(0)
+    expect(replaced.continuationCount).toBe(0)
+    expect(replaced.createdAt).toBe(4_000)
+    expect(formatGoalStatus(replaced, 4_000)).toContain('Budget: 0 / unlimited tokens')
   })
 
   test('pause, resume, complete, and clear are scoped to the thread', () => {

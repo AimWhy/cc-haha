@@ -28,6 +28,7 @@ import { TerminalSettings } from './TerminalSettings'
 import type { SessionListItem } from '../types/session'
 import { useMobileViewport } from '../hooks/useMobileViewport'
 import { isTauriRuntime } from '../lib/desktopRuntime'
+import type { ActiveGoalState } from '../types/chat'
 
 const TASK_POLL_INTERVAL_MS = 1000
 const WORKSPACE_RESIZE_STEP = 32
@@ -199,6 +200,62 @@ function TerminalResizeHandle() {
   )
 }
 
+function GoalStatusPanel({
+  goal,
+  isRunning,
+  compact,
+}: {
+  goal: ActiveGoalState
+  isRunning: boolean
+  compact: boolean
+}) {
+  const t = useTranslation()
+  const stateLabel = goal.action === 'completed'
+    ? t('chat.activeGoal.completed')
+    : goal.action === 'paused' || goal.status === 'paused'
+      ? t('chat.activeGoal.paused')
+      : isRunning && goal.status !== 'complete'
+        ? t('chat.activeGoal.running')
+        : t('chat.activeGoal.active')
+
+  return (
+    <div
+      data-testid="active-goal-panel"
+      className={
+        compact
+          ? 'border-b border-[var(--color-success)]/20 bg-[var(--color-success)]/6 px-4 py-2'
+          : 'mx-auto w-full max-w-[860px] border-b border-[var(--color-success)]/20 px-8 py-2'
+      }
+    >
+      <div className="flex min-w-0 items-center gap-3 rounded-md border border-[var(--color-success)]/25 bg-[var(--color-success)]/8 px-3 py-2">
+        <span className="material-symbols-outlined shrink-0 text-[18px] text-[var(--color-success)]">track_changes</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-normal text-[var(--color-success)]">
+              {t('chat.activeGoal.title')}
+            </span>
+            <span className="shrink-0 rounded-sm bg-[var(--color-success)]/12 px-1.5 py-0.5 text-[10px] font-semibold text-[var(--color-success)]">
+              {stateLabel}
+            </span>
+            {goal.objective && (
+              <span className="truncate text-xs font-semibold text-[var(--color-text-primary)]">
+                {goal.objective}
+              </span>
+            )}
+          </div>
+          {(goal.budget || goal.continuations || goal.elapsed) && (
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[var(--color-text-secondary)]">
+              {goal.budget && <span>{t('chat.activeGoal.budget', { value: goal.budget })}</span>}
+              {goal.continuations && <span>{t('chat.activeGoal.continuations', { value: goal.continuations })}</span>}
+              {goal.elapsed && <span>{t('chat.activeGoal.elapsed', { value: goal.elapsed })}</span>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ActiveSession() {
   const isMobileLayout = useMobileViewport() && !isTauriRuntime()
   const activeTabId = useTabStore((s) => s.activeTabId)
@@ -211,6 +268,7 @@ export function ActiveSession() {
   const trackedTaskSessionId = useCLITaskStore((s) => s.sessionId)
   const hasIncompleteTasks = useCLITaskStore((s) => s.tasks.some((task) => task.status !== 'completed'))
   const chatState = sessionState?.chatState ?? 'idle'
+  const activeGoal = sessionState?.activeGoal ?? null
   const tokenUsage = sessionState?.tokenUsage ?? { input_tokens: 0, output_tokens: 0 }
 
   const session = sessions.find((s) => s.id === activeTabId)
@@ -418,6 +476,14 @@ export function ActiveSession() {
                     )}
                   </div>
                 </div>
+              )}
+
+              {activeGoal && (
+                <GoalStatusPanel
+                  goal={activeGoal}
+                  isRunning={isActive}
+                  compact={showWorkspacePanel || isMobileLayout}
+                />
               )}
 
               <MessageList compact={showWorkspacePanel} />

@@ -250,6 +250,143 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('restores /goal local command output from transcript history', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'goal-command',
+        type: 'system',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: '<command-name>/goal</command-name>\n<command-args>--tokens 2k ship the smoke test</command-args>',
+      },
+      {
+        id: 'goal-output',
+        type: 'system',
+        timestamp: '2026-04-06T00:00:01.000Z',
+        content: [
+          '<local-command-stdout>',
+          'Goal created.',
+          'Goal: active',
+          'Objective: ship the smoke test',
+          'Budget: 0 / 2,000 tokens',
+          'Elapsed: 0s',
+          'Continuations: 0',
+          '</local-command-stdout>',
+        ].join('\n'),
+      },
+    ]
+
+    expect(mapHistoryMessagesToUiMessages(messages)).toMatchObject([
+      {
+        id: 'goal-output',
+        type: 'goal_event',
+        action: 'created',
+        status: 'active',
+        objective: 'ship the smoke test',
+        budget: '0 / 2,000 tokens',
+        continuations: '0',
+      },
+    ])
+  })
+
+  it('restores replacement /goal output as a replacement event', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'goal-command',
+        type: 'system',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: '<command-name>/goal</command-name>\n<command-args>ship the replacement target</command-args>',
+      },
+      {
+        id: 'goal-output',
+        type: 'system',
+        timestamp: '2026-04-06T00:00:01.000Z',
+        content: [
+          '<local-command-stdout>',
+          'Goal replaced.',
+          'Goal: active',
+          'Objective: ship the replacement target',
+          'Budget: 0 / unlimited tokens',
+          'Elapsed: 0s',
+          'Continuations: 0',
+          '</local-command-stdout>',
+        ].join('\n'),
+      },
+    ]
+
+    expect(mapHistoryMessagesToUiMessages(messages)).toMatchObject([
+      {
+        id: 'goal-output',
+        type: 'goal_event',
+        action: 'replaced',
+        status: 'active',
+        objective: 'ship the replacement target',
+        budget: '0 / unlimited tokens',
+      },
+    ])
+  })
+
+  it('restores completed /goal state from transcript history after app restart', async () => {
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'goal-command',
+          type: 'system',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: '<command-name>/goal</command-name>\n<command-args>ship the smoke test</command-args>',
+        },
+        {
+          id: 'goal-output',
+          type: 'system',
+          timestamp: '2026-04-06T00:00:01.000Z',
+          content: [
+            '<local-command-stdout>',
+            'Goal created.',
+            'Goal: active',
+            'Objective: ship the smoke test',
+            'Budget: 0 / 2,000 tokens',
+            'Elapsed: 0s',
+            'Continuations: 0',
+            '</local-command-stdout>',
+          ].join('\n'),
+        },
+        {
+          id: 'goal-complete',
+          type: 'system',
+          timestamp: '2026-04-06T00:00:02.000Z',
+          content: '<local-command-stdout>Goal marked complete.</local-command-stdout>',
+        },
+      ],
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ messages: [] }),
+      },
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        id: 'goal-output',
+        type: 'goal_event',
+        action: 'created',
+        objective: 'ship the smoke test',
+      },
+      {
+        id: 'goal-complete',
+        type: 'goal_event',
+        action: 'completed',
+        message: 'Goal marked complete.',
+      },
+    ])
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
+      action: 'completed',
+      status: 'complete',
+      objective: 'ship the smoke test',
+    })
+  })
+
   it('merges consecutive assistant text blocks when restoring transcript history', () => {
     const messages: MessageEntry[] = [
       {
@@ -1150,6 +1287,125 @@ describe('chatStore history mapping', () => {
         ],
       },
     ])
+  })
+
+  it('renders live goal notifications as visible goal events', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          messages: [],
+          chatState: 'idle',
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'goal_event',
+      message: 'Goal: active',
+      data: {
+        action: 'created',
+        status: 'active',
+        objective: 'ship the smoke test',
+        budget: '0 / 2,000 tokens',
+        continuations: '0',
+      },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'goal_event',
+        action: 'created',
+        status: 'active',
+        objective: 'ship the smoke test',
+        budget: '0 / 2,000 tokens',
+        continuations: '0',
+      },
+    ])
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
+      action: 'created',
+      status: 'active',
+      objective: 'ship the smoke test',
+      budget: '0 / 2,000 tokens',
+      continuations: '0',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'goal_event',
+      message: 'Goal replaced.',
+      data: {
+        action: 'replaced',
+        status: 'active',
+        objective: 'ship the replacement target',
+        budget: '0 / unlimited tokens',
+        continuations: '0',
+      },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
+      action: 'replaced',
+      status: 'active',
+      objective: 'ship the replacement target',
+      budget: '0 / unlimited tokens',
+      continuations: '0',
+    })
+  })
+
+  it('keeps the active goal panel state in sync with /goal lifecycle events', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          messages: [],
+          activeGoal: {
+            action: 'created',
+            status: 'active',
+            objective: 'ship the smoke test',
+            budget: '0 / 2,000 tokens',
+            continuations: '0',
+            updatedAt: 1,
+          },
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'goal_event',
+      data: {
+        action: 'paused',
+        status: 'paused',
+      },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
+      action: 'paused',
+      status: 'paused',
+      objective: 'ship the smoke test',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'goal_event',
+      data: {
+        action: 'completed',
+        message: 'Goal marked complete.',
+      },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
+      action: 'completed',
+      status: 'complete',
+      objective: 'ship the smoke test',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'goal_event',
+      data: {
+        action: 'cleared',
+        message: 'Goal cleared.',
+      },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toBeNull()
   })
 
   it('flushes the previous assistant draft before starting a new user turn', () => {

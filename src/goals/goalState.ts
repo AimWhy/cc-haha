@@ -1,4 +1,9 @@
 import { randomUUID } from 'crypto'
+import {
+  COMMAND_NAME_TAG,
+  LOCAL_COMMAND_STDOUT_TAG,
+} from '../constants/xml.js'
+import type { Message } from '../types/message.js'
 
 export type ThreadGoalStatus = 'active' | 'paused' | 'complete' | 'budget_limited'
 
@@ -64,20 +69,16 @@ export function setThreadGoal(
   },
 ): ThreadGoal {
   const now = input.now ?? Date.now()
-  const existing = goalsByThread.get(threadId)
   const goal: ThreadGoal = {
-    goalId: existing?.goalId ?? randomUUID(),
+    goalId: randomUUID(),
     threadId,
     objective: input.objective.trim(),
     status: 'active',
-    tokenBudget:
-      input.tokenBudget !== undefined
-        ? input.tokenBudget
-        : (existing?.tokenBudget ?? null),
-    tokensUsed: existing?.tokensUsed ?? 0,
+    tokenBudget: input.tokenBudget ?? null,
+    tokensUsed: 0,
     continuationCount: 0,
     lastReason: null,
-    createdAt: existing?.createdAt ?? now,
+    createdAt: now,
     updatedAt: now,
   }
   goalsByThread.set(threadId, goal)
@@ -86,6 +87,38 @@ export function setThreadGoal(
 
 export function getThreadGoal(threadId: string): ThreadGoal | null {
   return goalsByThread.get(threadId) ?? null
+}
+
+export function hydrateThreadGoalFromMessages(
+  threadId: string,
+  messages: Message[],
+  now = Date.now(),
+): ThreadGoal | null {
+  if (goalsByThread.has(threadId)) return goalsByThread.get(threadId) ?? null
+
+  let pendingGoalCommand = false
+  let restored: ThreadGoal | null = null
+
+  for (const message of messages) {
+    const text = messageToText(message)
+    if (!text) continue
+
+    const commandName = readXmlTag(text, COMMAND_NAME_TAG)
+    if (commandName) {
+      pendingGoalCommand = commandName.replace(/^\//, '') === 'goal'
+      continue
+    }
+
+    const output = readXmlTag(text, LOCAL_COMMAND_STDOUT_TAG)
+    if (!output) continue
+    if (!pendingGoalCommand && !looksLikeGoalStatusOutput(output)) continue
+
+    restored = goalFromLocalCommandOutput(threadId, output, restored, now)
+    pendingGoalCommand = false
+  }
+
+  if (restored) goalsByThread.set(threadId, restored)
+  return restored
 }
 
 export function clearThreadGoal(threadId: string): boolean {
@@ -215,4 +248,138 @@ function formatElapsed(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes % 60}m`
   if (minutes > 0) return `${minutes}m`
   return `${seconds}s`
+}
+
+function goalFromLocalCommandOutput(
+  threadId: string,
+  output: string,
+  current: ThreadGoal | null,
+  now: number,
+): ThreadGoal | null {
+  const trimmed = output.trim()
+  if (
+    trimmed === 'Goal cleared.' ||
+    trimmed === 'No active goal.' ||
+    trimmed === 'No goal to resume.'
+  ) {
+    return null
+  }
+  if (trimmed === 'Goal marked complete.') {
+    return current ? { ...current, status: 'complete', updatedAt: now } : null
+  }
+
+  const body = trimmed.startsWith('Goal created.\n') || trimmed.startsWith('Goal replaced.\n')
+    ? trimmed.split(/\r?\n/).slice(1).join('\n').trim()
+    : trimmed
+  const fields = parseStatusFields(body)
+  const status = parseGoalStatus(fields.goal)
+  if (!status || !fields.objective) return current
+
+  const budget = parseBudget(fields.budget)
+  const elapsedMs = parseElapsed(fields.elapsed)
+  return {
+    goalId: randomUUID(),
+    threadId,
+    objective: fields.objective,
+    status,
+    tokenBudget: budget.tokenBudget,
+    tokensUsed: budget.tokensUsed,
+    continuationCount: parseInteger(fields.continuations) ?? 0,
+    lastReason: fields['latest reason'] ?? null,
+    createdAt: now - elapsedMs,
+    updatedAt: now,
+  }
+}
+
+function messageToText(message: Message): string {
+  if (message.type === 'system') {
+    return typeof message.content === 'string' ? message.content : ''
+  }
+  if (!('message' in message)) return ''
+  const content = message.message?.content
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((block) => {
+      if (!block || typeof block !== 'object') return ''
+      const text = (block as { text?: unknown }).text
+      return typeof text === 'string' ? text : ''
+    })
+    .filter(Boolean)
+    .join('\n')
+}
+
+function readXmlTag(text: string, tag: string): string | null {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = text.match(new RegExp(`<${escaped}>([\\s\\S]*?)</${escaped}>`, 'i'))
+  return match?.[1]?.trim() ?? null
+}
+
+function looksLikeGoalStatusOutput(output: string): boolean {
+  const trimmed = output.trim()
+  return (
+    trimmed.startsWith('Goal created.\n') ||
+    trimmed.startsWith('Goal replaced.\n') ||
+    trimmed.startsWith('Goal: ') ||
+    trimmed === 'Goal cleared.' ||
+    trimmed === 'Goal marked complete.'
+  )
+}
+
+function parseStatusFields(output: string): Record<string, string> {
+  return Object.fromEntries(
+    output
+      .split(/\r?\n/)
+      .map((line) => {
+        const index = line.indexOf(':')
+        if (index < 0) return null
+        return [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()]
+      })
+      .filter((entry): entry is [string, string] => entry !== null),
+  )
+}
+
+function parseGoalStatus(raw: string | undefined): ThreadGoalStatus | null {
+  if (
+    raw === 'active' ||
+    raw === 'paused' ||
+    raw === 'complete' ||
+    raw === 'budget_limited'
+  ) {
+    return raw
+  }
+  return null
+}
+
+function parseBudget(raw: string | undefined): {
+  tokenBudget: number | null
+  tokensUsed: number
+} {
+  if (!raw) return { tokenBudget: null, tokensUsed: 0 }
+  const match = raw.match(/^([\d,]+)\s*\/\s*(unlimited|[\d,]+)\s+tokens$/i)
+  if (!match) return { tokenBudget: null, tokensUsed: 0 }
+  return {
+    tokensUsed: parseInteger(match[1]) ?? 0,
+    tokenBudget: match[2]?.toLowerCase() === 'unlimited'
+      ? null
+      : parseInteger(match[2]) ?? null,
+  }
+}
+
+function parseElapsed(raw: string | undefined): number {
+  if (!raw) return 0
+  let ms = 0
+  for (const match of raw.matchAll(/(\d+)\s*([hms])/g)) {
+    const value = Number(match[1])
+    if (match[2] === 'h') ms += value * 60 * 60 * 1000
+    if (match[2] === 'm') ms += value * 60 * 1000
+    if (match[2] === 's') ms += value * 1000
+  }
+  return ms
+}
+
+function parseInteger(raw: string | undefined): number | null {
+  if (!raw) return null
+  const value = Number(raw.replace(/,/g, ''))
+  return Number.isFinite(value) ? value : null
 }

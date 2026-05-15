@@ -141,6 +141,56 @@ describe('MessageList nested tool calls', () => {
     expect(container.querySelectorAll('[data-message-shell="assistant"]').length).toBeLessThan(140)
   })
 
+  it('renders goal events as visible status cards', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'goal-1',
+            type: 'goal_event',
+            action: 'created',
+            status: 'active',
+            objective: 'ship the smoke test',
+            budget: '0 / 2,000 tokens',
+            continuations: '0',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Goal created')).toBeTruthy()
+    expect(screen.getByText('Objective: ship the smoke test')).toBeTruthy()
+    expect(screen.getByText('Status: active')).toBeTruthy()
+    expect(screen.getByText('Budget: 0 / 2,000 tokens')).toBeTruthy()
+  })
+
+  it('renders replacement goal events distinctly', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'goal-replaced',
+            type: 'goal_event',
+            action: 'replaced',
+            status: 'active',
+            objective: 'ship the replacement target',
+            budget: '0 / unlimited tokens',
+            timestamp: 1,
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByText('Goal replaced')).toBeTruthy()
+    expect(screen.getByText('Objective: ship the replacement target')).toBeTruthy()
+    expect(screen.getByText('Budget: 0 / unlimited tokens')).toBeTruthy()
+  })
+
   it('restores the full transcript when scrolling away from latest', async () => {
     useChatStore.setState({
       sessions: {

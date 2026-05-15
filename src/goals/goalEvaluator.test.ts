@@ -133,4 +133,49 @@ describe('goalEvaluator', () => {
       'The transcript shows the tests passed.',
     )
   })
+
+  test('hydrates an active goal from persisted slash command history before continuing', async () => {
+    const threadId = 'thread-eval-hydrate'
+
+    const decision = await evaluateThreadGoalAfterTurn({
+      threadId,
+      messages: [
+        createUserMessage({
+          content: [
+            '<command-name>/goal</command-name>',
+            '<command-args>ship persisted goal</command-args>',
+          ].join('\n'),
+        }),
+        createUserMessage({
+          content: [
+            '<local-command-stdout>',
+            'Goal created.',
+            'Goal: active',
+            'Objective: ship persisted goal',
+            'Budget: 42 / 2,000 tokens',
+            'Elapsed: 1m',
+            'Continuations: 3',
+            '</local-command-stdout>',
+          ].join('\n'),
+        }),
+        createAssistantMessage({
+          content: [{ type: 'text', text: 'Still need to run verification.' }],
+        }),
+      ],
+      assistantMessages: [],
+      signal: new AbortController().signal,
+      now: 120_000,
+      evaluate: async ({ goal }) => ({
+        complete: false,
+        reason: `${goal.objective} is not verified.`,
+      }),
+    })
+
+    expect(decision.action).toBe('continue')
+    const restored = getThreadGoal(threadId)
+    expect(restored?.objective).toBe('ship persisted goal')
+    expect(restored?.tokensUsed).toBe(42)
+    expect(restored?.tokenBudget).toBe(2_000)
+    expect(restored?.continuationCount).toBe(4)
+  })
 })

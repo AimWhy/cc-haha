@@ -21,6 +21,7 @@ import { diagnosticsService } from '../services/diagnosticsService.js'
 import { deriveTitle, generateTitle, saveAiTitle } from '../services/titleService.js'
 import { parseSlashCommand } from '../../utils/slashCommandParsing.js'
 import {
+  COMMAND_NAME_TAG,
   LOCAL_COMMAND_STDERR_TAG,
   LOCAL_COMMAND_STDOUT_TAG,
 } from '../../constants/xml.js'
@@ -700,6 +701,7 @@ type SessionStreamState = {
   hasReceivedStreamEvents: boolean
   activeBlockTypes: Map<number, 'text' | 'tool_use' | 'thinking'>
   activeToolBlocks: Map<number, { toolName: string; toolUseId: string; inputJson: string }>
+  pendingLocalCommand?: { name: string; args: string }
   /** Tool blocks whose input JSON failed to parse in content_block_stop.
    *  The assistant message carries the complete input — defer to that. */
   pendingToolBlocks: Map<string, { toolName: string; toolUseId: string; parentToolUseId?: string }>
@@ -718,6 +720,7 @@ function getStreamState(sessionId: string): SessionStreamState {
       hasReceivedStreamEvents: false,
       activeBlockTypes: new Map(),
       activeToolBlocks: new Map(),
+      pendingLocalCommand: undefined,
       pendingToolBlocks: new Map(),
       lastApiError: undefined,
     }
@@ -962,8 +965,22 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         cliMsg.message?.content,
       )
       if (localCommandOutput) {
-        messages.push({ type: 'content_start', blockType: 'text' })
-        messages.push({ type: 'content_delta', text: localCommandOutput })
+        const goalEvent = extractGoalEvent(
+          localCommandOutput,
+          streamState.pendingLocalCommand,
+        )
+        streamState.pendingLocalCommand = undefined
+        if (goalEvent) {
+          messages.push({
+            type: 'system_notification',
+            subtype: 'goal_event',
+            message: goalEvent.message,
+            data: goalEvent,
+          })
+        } else {
+          messages.push({ type: 'content_start', blockType: 'text' })
+          messages.push({ type: 'content_delta', text: localCommandOutput })
+        }
       }
 
       if (cliMsg.message?.content && Array.isArray(cliMsg.message.content)) {
@@ -1210,11 +1227,30 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         return []
       }
       if (subtype === 'local_command' || subtype === 'local_command_output') {
+        const localCommand = extractLocalCommand(cliMsg.content ?? cliMsg.message)
+        if (localCommand) {
+          streamState.pendingLocalCommand = localCommand
+          return []
+        }
+
         const localCommandOutput = extractLocalCommandOutput(
           cliMsg.content ?? cliMsg.message,
           { allowUntagged: subtype === 'local_command_output' },
         )
         if (!localCommandOutput) return []
+        const goalEvent = extractGoalEvent(
+          localCommandOutput,
+          streamState.pendingLocalCommand,
+        )
+        streamState.pendingLocalCommand = undefined
+        if (goalEvent) {
+          return [{
+            type: 'system_notification',
+            subtype: 'goal_event',
+            message: goalEvent.message,
+            data: goalEvent,
+          }]
+        }
         return [
           { type: 'content_start', blockType: 'text' },
           { type: 'content_delta', text: localCommandOutput },
@@ -1323,6 +1359,103 @@ function extractLocalCommandOutput(
 function extractTaggedContent(raw: string, tag: string): string | null {
   const match = raw.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))
   return match?.[1]?.trim() ?? null
+}
+
+function extractLocalCommand(content: unknown): { name: string; args: string } | null {
+  const raw = typeof content === 'string'
+    ? content
+    : Array.isArray(content)
+      ? content
+        .flatMap((block) => {
+          if (!block || typeof block !== 'object') return []
+          const text = (block as { text?: unknown }).text
+          return typeof text === 'string' ? [text] : []
+        })
+        .join('\n')
+      : ''
+
+  const name = extractTaggedContent(raw, COMMAND_NAME_TAG)
+  if (!name) return null
+  return {
+    name: name.replace(/^\//, ''),
+    args: extractTaggedContent(raw, 'command-args') ?? '',
+  }
+}
+
+type GoalEventData = {
+  action: 'created' | 'replaced' | 'status' | 'paused' | 'resumed' | 'completed' | 'cleared' | 'message'
+  status?: string
+  objective?: string
+  budget?: string
+  elapsed?: string
+  continuations?: string
+  message?: string
+}
+
+function extractGoalEvent(
+  output: string,
+  command?: { name: string; args: string },
+): GoalEventData | null {
+  if (command && command.name !== 'goal') return null
+
+  const trimmed = output.trim()
+  if (!trimmed) return null
+
+  if (trimmed === 'Goal cleared.') {
+    return { action: 'cleared', message: trimmed }
+  }
+  if (trimmed === 'Goal marked complete.') {
+    return { action: 'completed', message: trimmed }
+  }
+  if (trimmed === 'No active goal.' || trimmed === 'No goal to resume.') {
+    return { action: 'message', message: trimmed }
+  }
+
+  const actionPrefix = trimmed.startsWith('Goal replaced.\n')
+    ? 'replaced'
+    : trimmed.startsWith('Goal created.\n')
+      ? 'created'
+      : null
+  const body = actionPrefix
+    ? trimmed.split(/\r?\n/).slice(1).join('\n').trim()
+    : trimmed
+
+  const lines = Object.fromEntries(
+    body
+      .split(/\r?\n/)
+      .map((line) => {
+        const index = line.indexOf(':')
+        if (index < 0) return null
+        return [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()]
+      })
+      .filter((entry): entry is [string, string] => entry !== null),
+  )
+
+  if (!lines.goal) return command?.name === 'goal' ? { action: 'message', message: trimmed } : null
+
+  return {
+    action: actionPrefix ?? resolveGoalEventAction(command, lines.goal),
+    status: lines.goal,
+    objective: lines.objective,
+    budget: lines.budget,
+    elapsed: lines.elapsed,
+    continuations: lines.continuations,
+    message: trimmed,
+  }
+}
+
+function resolveGoalEventAction(
+  command: { name: string; args: string } | undefined,
+  status: string,
+): GoalEventData['action'] {
+  const args = command?.args.trim() ?? ''
+  if (args === 'pause') return 'paused'
+  if (args === 'resume') return 'resumed'
+  if (!args || args === 'status') return 'status'
+  if (status === 'paused') return 'paused'
+  if (status === 'complete') return 'completed'
+  if (status === 'active') return 'created'
+  return 'status'
 }
 
 function getCompactBoundaryMessage(cliMsg: any): string {

@@ -14,11 +14,13 @@ import type { MessageEntry } from '../types/session'
 import type { PermissionMode } from '../types/settings'
 import type { RuntimeSelection } from '../types/runtime'
 import type {
+  ActiveGoalState,
   AgentTaskNotification,
   AttachmentRef,
   ChatState,
   ComputerUsePermissionRequest,
   ComputerUsePermissionResponse,
+  GoalEventAction,
   MemoryEventFile,
   UIAttachment,
   UIMessage,
@@ -53,6 +55,7 @@ export type PerSessionState = {
   statusVerb: string
   slashCommands: Array<{ name: string; description: string; argumentHint?: string }>
   agentTaskNotifications: Record<string, AgentTaskNotification>
+  activeGoal?: ActiveGoalState | null
   elapsedTimer: ReturnType<typeof setInterval> | null
   composerPrefill?: {
     text: string
@@ -77,6 +80,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   statusVerb: '',
   slashCommands: [],
   agentTaskNotifications: {},
+  activeGoal: null,
   elapsedTimer: null,
   composerPrefill: null,
 }
@@ -269,9 +273,11 @@ function updateSessionIn(
 
 async function fetchAndMapSessionHistory(sessionId: string) {
   const { messages, taskNotifications } = await sessionsApi.getMessages(sessionId)
+  const uiMessages = mapHistoryMessagesToUiMessages(messages)
   return {
     rawMessages: messages,
-    uiMessages: mapHistoryMessagesToUiMessages(messages),
+    uiMessages,
+    activeGoal: deriveActiveGoalFromMessages(uiMessages),
     restoredNotifications: {
       ...reconstructAgentNotifications(messages),
       ...agentNotificationRecordFromList(taskNotifications ?? []),
@@ -299,6 +305,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           ...createDefaultSessionState(),
           connectionState: 'connecting',
           messages: existing?.messages ?? [],
+          activeGoal: existing?.activeGoal ?? null,
         },
       },
     }))
@@ -527,6 +534,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const {
         uiMessages,
+        activeGoal,
         restoredNotifications,
         lastTodos,
         hasMessagesAfterTaskCompletion,
@@ -536,6 +544,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (!session || session.messages.length > 0) return state
         return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
           messages: uiMessages,
+          activeGoal,
           agentTaskNotifications: { ...s.agentTaskNotifications, ...restoredNotifications },
         })) }
       })
@@ -557,6 +566,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     try {
       const {
         uiMessages,
+        activeGoal,
         restoredNotifications,
         lastTodos,
         hasMessagesAfterTaskCompletion,
@@ -569,6 +579,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         return {
           sessions: updateSessionIn(state.sessions, sessionId, () => ({
             messages: uiMessages,
+            activeGoal,
             agentTaskNotifications: restoredNotifications,
             chatState: 'idle',
             activeThinkingId: null,
@@ -611,7 +622,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   clearMessages: (sessionId) => {
     clearPendingTaskToolUseIds(sessionId)
-    set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ messages: [], streamingText: '', chatState: 'idle' })) }))
+    set((s) => ({ sessions: updateSessionIn(s.sessions, sessionId, () => ({ messages: [], activeGoal: null, streamingText: '', chatState: 'idle' })) }))
   },
 
   handleServerMessage: (sessionId, msg) => {
@@ -917,6 +928,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             statusVerb: '',
             tokenUsage: { input_tokens: 0, output_tokens: 0 },
             slashCommands: [],
+            activeGoal: null,
           }))
           clearPendingDelta(sessionId)
           clearPendingTaskToolUseIds(sessionId)
@@ -953,6 +965,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
                   files,
                   message: msg.message,
                   teamCount: normalizeMemoryTeamCount(msg.data),
+                  timestamp: Date.now(),
+                },
+              ],
+            }))
+          }
+        }
+        if (msg.subtype === 'goal_event') {
+          const goalEvent = normalizeGoalEventData(msg.data, msg.message)
+          if (goalEvent) {
+            update((session) => ({
+              activeGoal: applyGoalEventToActiveGoal(session.activeGoal ?? null, goalEvent, Date.now()),
+              messages: [
+                ...session.messages,
+                {
+                  id: nextId(),
+                  type: 'goal_event',
+                  ...goalEvent,
                   timestamp: Date.now(),
                 },
               ],
@@ -1019,6 +1048,17 @@ type AssistantHistoryBlock = { type: string; text?: string; thinking?: string; n
 type UserHistoryBlock = { type: string; text?: string; tool_use_id?: string; content?: unknown; is_error?: boolean; source?: { data?: string }; mimeType?: string; media_type?: string; name?: string }
 
 const TASK_NOTIFICATION_RE = /^<task-notification>\s*[\s\S]*<\/task-notification>$/i
+const GOAL_CLEAR_ALIASES = new Set(['clear', 'stop', 'off', 'reset', 'none', 'cancel'])
+const GOAL_EVENT_ACTIONS = new Set<GoalEventAction>([
+  'created',
+  'replaced',
+  'status',
+  'paused',
+  'resumed',
+  'completed',
+  'cleared',
+  'message',
+])
 
 /**
  * Check if text is a teammate-message (internal agent-to-agent communication).
@@ -1068,6 +1108,151 @@ function decodeXmlText(text: string): string {
 function readXmlTag(xml: string, tag: string): string | undefined {
   const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i'))
   return match?.[1] ? decodeXmlText(match[1].trim()) : undefined
+}
+
+function normalizeGoalEventData(
+  data: unknown,
+  fallbackMessage?: string,
+): Omit<Extract<UIMessage, { type: 'goal_event' }>, 'id' | 'type' | 'timestamp'> | null {
+  if (!data || typeof data !== 'object') {
+    const message = typeof fallbackMessage === 'string' ? fallbackMessage.trim() : ''
+    return message ? { action: 'message', message } : null
+  }
+
+  const record = data as Record<string, unknown>
+  const action = typeof record.action === 'string' && GOAL_EVENT_ACTIONS.has(record.action as GoalEventAction)
+    ? record.action as GoalEventAction
+    : 'message'
+  const read = (key: string) =>
+    typeof record[key] === 'string' && record[key].trim()
+      ? record[key].trim()
+      : undefined
+  return {
+    action,
+    status: read('status'),
+    objective: read('objective'),
+    budget: read('budget'),
+    elapsed: read('elapsed'),
+    continuations: read('continuations'),
+    message: read('message') ?? (typeof fallbackMessage === 'string' ? fallbackMessage.trim() : undefined),
+  }
+}
+
+function applyGoalEventToActiveGoal(
+  current: ActiveGoalState | null,
+  event: Omit<Extract<UIMessage, { type: 'goal_event' }>, 'id' | 'type' | 'timestamp'>,
+  updatedAt: number,
+): ActiveGoalState | null {
+  if (event.action === 'cleared') return null
+  if (
+    event.action === 'message' &&
+    event.message &&
+    /no (active )?goal/i.test(event.message)
+  ) {
+    return null
+  }
+  if (event.action === 'message') return current
+  const baseGoal = event.action === 'created' || event.action === 'replaced' ? null : current
+
+  return {
+    action: event.action,
+    status: event.status ?? (event.action === 'completed' ? 'complete' : baseGoal?.status),
+    objective: event.objective ?? baseGoal?.objective,
+    budget: event.budget ?? baseGoal?.budget,
+    elapsed: event.elapsed ?? baseGoal?.elapsed,
+    continuations: event.continuations ?? baseGoal?.continuations,
+    message: event.message ?? baseGoal?.message,
+    updatedAt,
+  }
+}
+
+function deriveActiveGoalFromMessages(messages: UIMessage[]): ActiveGoalState | null {
+  return messages.reduce<ActiveGoalState | null>((activeGoal, message) => {
+    if (message.type !== 'goal_event') return activeGoal
+    return applyGoalEventToActiveGoal(activeGoal, message, message.timestamp)
+  }, null)
+}
+
+function extractLocalCommandText(content: unknown): string | null {
+  if (typeof content !== 'string') return null
+  return content.trim() || null
+}
+
+function parseGoalCommandFromLocalCommand(content: unknown): { name: string; args: string } | null {
+  const text = extractLocalCommandText(content)
+  if (!text) return null
+  const commandName = readXmlTag(text, 'command-name')
+  if (!commandName) return null
+  return {
+    name: commandName.replace(/^\//, ''),
+    args: readXmlTag(text, 'command-args') ?? '',
+  }
+}
+
+function extractLocalCommandOutputText(content: unknown): string | null {
+  const text = extractLocalCommandText(content)
+  if (!text) return null
+  return readXmlTag(text, 'local-command-stdout') ?? readXmlTag(text, 'local-command-stderr') ?? null
+}
+
+function parseGoalEventFromLocalCommandOutput(
+  output: string,
+  command: { name: string; args: string } | null,
+): Omit<Extract<UIMessage, { type: 'goal_event' }>, 'id' | 'type' | 'timestamp'> | null {
+  if (command && command.name !== 'goal') return null
+  const trimmed = output.trim()
+  if (!trimmed) return null
+
+  if (trimmed === 'Goal cleared.') return { action: 'cleared', message: trimmed }
+  if (trimmed === 'Goal marked complete.') return { action: 'completed', message: trimmed }
+  if (trimmed === 'No active goal.' || trimmed === 'No goal to resume.') return { action: 'message', message: trimmed }
+
+  const actionPrefix = trimmed.startsWith('Goal replaced.\n')
+    ? 'replaced'
+    : trimmed.startsWith('Goal created.\n')
+      ? 'created'
+      : null
+  const body = actionPrefix
+    ? trimmed.split(/\r?\n/).slice(1).join('\n').trim()
+    : trimmed
+
+  const fields = Object.fromEntries(
+    body
+      .split(/\r?\n/)
+      .map((line) => {
+        const index = line.indexOf(':')
+        if (index < 0) return null
+        return [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()]
+      })
+      .filter((entry): entry is [string, string] => entry !== null),
+  )
+  if (!fields.goal) return command?.name === 'goal' ? { action: 'message', message: trimmed } : null
+
+  return {
+    action: actionPrefix ?? resolveHistoryGoalAction(command, fields.goal),
+    status: fields.goal,
+    objective: fields.objective,
+    budget: fields.budget,
+    elapsed: fields.elapsed,
+    continuations: fields.continuations,
+    message: trimmed,
+  }
+}
+
+function resolveHistoryGoalAction(
+  command: { name: string; args: string } | null,
+  status: string,
+): GoalEventAction {
+  const args = command?.args.trim() ?? ''
+  if (args === 'pause') return 'paused'
+  if (args === 'resume') return 'resumed'
+  if (GOAL_CLEAR_ALIASES.has(args)) return 'cleared'
+  if (args === 'complete') return 'completed'
+  if (!args || args === 'status') return 'status'
+  if (status === 'active') return 'created'
+  if (status === 'paused') return 'paused'
+  if (status === 'complete') return 'completed'
+  return 'status'
 }
 
 function extractTaskNotification(content: unknown): AgentTaskNotification | null {
@@ -1298,6 +1483,7 @@ export function mapHistoryMessagesToUiMessages(
   const includeTeammateMessages = options?.includeTeammateMessages === true
   const uiMessages: UIMessage[] = []
   let suppressTaskNotificationResponse = false
+  let pendingGoalCommand: { name: string; args: string } | null = null
 
   for (const msg of messages) {
     if (msg.type === 'user' && isTaskNotificationContent(msg.content)) {
@@ -1311,6 +1497,28 @@ export function mapHistoryMessagesToUiMessages(
     }
 
     const timestamp = new Date(msg.timestamp).getTime()
+    if (msg.type === 'system' && typeof msg.content === 'string') {
+      const localCommand = parseGoalCommandFromLocalCommand(msg.content)
+      if (localCommand) {
+        pendingGoalCommand = localCommand
+        continue
+      }
+
+      const localCommandOutput = extractLocalCommandOutputText(msg.content)
+      if (localCommandOutput) {
+        const goalEvent = parseGoalEventFromLocalCommandOutput(localCommandOutput, pendingGoalCommand)
+        pendingGoalCommand = null
+        if (goalEvent) {
+          uiMessages.push({
+            id: msg.id || nextId(),
+            type: 'goal_event',
+            ...goalEvent,
+            timestamp,
+          })
+        }
+        continue
+      }
+    }
     if (msg.type === 'user' && typeof msg.content === 'string') {
       if (isTeammateMessage(msg.content)) {
         if (!includeTeammateMessages) continue

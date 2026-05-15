@@ -12,6 +12,7 @@ import {
   accountThreadGoalUsage,
   buildGoalContinuationPrompt,
   getThreadGoal,
+  hydrateThreadGoalFromMessages,
   incrementThreadGoalContinuation,
   markThreadGoalComplete,
   updateThreadGoalStatus,
@@ -48,7 +49,9 @@ export async function evaluateThreadGoalAfterTurn(input: {
   evaluate?: EvaluateFn
 }): Promise<GoalTurnDecision> {
   const now = input.now ?? Date.now()
-  const current = getThreadGoal(input.threadId)
+  const current =
+    getThreadGoal(input.threadId) ??
+    hydrateThreadGoalFromMessages(input.threadId, input.messages, now)
   if (!current || current.status !== 'active') return { action: 'none' }
 
   const tokens = input.assistantMessages.reduce(

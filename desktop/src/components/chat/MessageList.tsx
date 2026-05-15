@@ -1,5 +1,5 @@
 import { useRef, useEffect, useMemo, memo, useState, useCallback, useLayoutEffect, type ReactNode } from 'react'
-import { ArrowDown, BookMarked, Settings } from 'lucide-react'
+import { ArrowDown, BookMarked, Settings, Target } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import { sessionsApi, type SessionTurnCheckpoint } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
@@ -26,6 +26,7 @@ import { ConfirmDialog } from '../shared/ConfirmDialog'
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
 type MemoryEvent = Extract<UIMessage, { type: 'memory_event' }>
+type GoalEvent = Extract<UIMessage, { type: 'goal_event' }>
 
 type RenderItem =
   | { kind: 'tool_group'; toolCalls: ToolCall[]; id: string }
@@ -145,6 +146,42 @@ function ChatSelectionMenu({
       <span aria-hidden="true" className="material-symbols-outlined text-[15px] text-[var(--color-text-tertiary)]">person_add</span>
       <span>{t('chat.addSelectionToChat')}</span>
     </button>
+  )
+}
+
+function GoalEventCard({ message }: { message: GoalEvent }) {
+  const t = useTranslation()
+  const titleKey = `chat.goalEvent.${message.action === 'status' ? 'statusTitle' : message.action}` as TranslationKey
+  const title = t(titleKey) === titleKey ? t('chat.goalEvent.message') : t(titleKey)
+  const details = [
+    message.objective ? t('chat.goalEvent.objective', { value: message.objective }) : null,
+    message.status ? t('chat.goalEvent.statusValue', { value: message.status }) : null,
+    message.budget ? t('chat.goalEvent.budget', { value: message.budget }) : null,
+    message.continuations ? t('chat.goalEvent.continuations', { value: message.continuations }) : null,
+  ].filter((detail): detail is string => detail !== null)
+
+  return (
+    <div className="mb-3 flex justify-center">
+      <div className="flex max-w-[min(680px,100%)] items-start gap-3 rounded-[8px] border border-[var(--color-success)]/25 bg-[var(--color-success-container)]/28 px-3.5 py-3 text-left shadow-sm">
+        <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-[6px] bg-[var(--color-success)]/12 text-[var(--color-success)]">
+          <Target size={15} strokeWidth={2.25} aria-hidden="true" />
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-[var(--color-text-primary)]">{title}</div>
+          {details.length > 0 ? (
+            <div className="mt-1 space-y-0.5 text-xs leading-5 text-[var(--color-text-secondary)]">
+              {details.map((detail) => (
+                <div key={detail} className="break-words">{detail}</div>
+              ))}
+            </div>
+          ) : message.message ? (
+            <div className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]">
+              {message.message}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -1126,6 +1163,8 @@ export const MessageBlock = memo(function MessageBlock({
       return <InlineTaskSummary tasks={message.tasks} />
     case 'memory_event':
       return <MemoryEventCard message={message} />
+    case 'goal_event':
+      return <GoalEventCard message={message} />
     case 'system':
       return (
         <div className="mb-3 text-center text-xs text-[var(--color-text-tertiary)]">

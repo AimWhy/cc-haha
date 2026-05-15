@@ -48,6 +48,7 @@ import {
   createUserInterruptionMessage,
   normalizeMessagesForAPI,
   createSystemMessage,
+  createCommandInputMessage,
   createAssistantAPIErrorMessage,
   getMessagesAfterCompactBoundary,
   createToolUseSummaryMessage,
@@ -1341,6 +1342,12 @@ async function* queryLoop(
               transition: { reason: 'goal_continuation' } as Continue,
             }
             continue
+          }
+
+          if (goalDecision.action === 'complete') {
+            yield createCommandInputMessage(
+              '<local-command-stdout>Goal marked complete.</local-command-stdout>',
+            )
           }
 
           if (goalDecision.action === 'budget_limited') {

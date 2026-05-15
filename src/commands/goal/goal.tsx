@@ -53,11 +53,12 @@ export async function call(
       return null
     }
 
+    const replaced = Boolean(getThreadGoal(threadId))
     const goal = setThreadGoal(threadId, {
       objective: parsed.objective,
       tokenBudget: parsed.tokenBudget,
     })
-    onDone(formatGoalStatus(goal), {
+    onDone(`${replaced ? 'Goal replaced.' : 'Goal created.'}\n${formatGoalStatus(goal)}`, {
       display: 'system',
       shouldQuery: true,
       metaMessages: [buildGoalStartPrompt(goal)],

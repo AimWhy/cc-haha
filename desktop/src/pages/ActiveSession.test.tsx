@@ -135,6 +135,78 @@ describe('ActiveSession task polling', () => {
     expect(screen.getByTestId('chat-input')).toHaveAttribute('data-variant', 'default')
   })
 
+  it('shows the current goal as a persistent session status panel', () => {
+    const sessionId = 'goal-visible-session'
+
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'Goal Visible Session',
+        createdAt: '2026-05-07T00:00:00.000Z',
+        modifiedAt: '2026-05-07T00:00:00.000Z',
+        messageCount: 1,
+        projectPath: '/workspace/project',
+        workDir: '/workspace/project',
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+      isLoading: false,
+      error: null,
+    })
+    useTabStore.setState({
+      tabs: [{ sessionId, title: 'Goal Visible Session', type: 'session', status: 'running' }],
+      activeTabId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [{
+            id: 'goal-event',
+            type: 'goal_event',
+            action: 'created',
+            status: 'active',
+            objective: 'ship the smoke test',
+            budget: '0 / 2,000 tokens',
+            continuations: '0',
+            timestamp: 1,
+          }],
+          activeGoal: {
+            action: 'created',
+            status: 'active',
+            objective: 'ship the smoke test',
+            budget: '0 / 2,000 tokens',
+            continuations: '0',
+            updatedAt: 1,
+          },
+          chatState: 'thinking',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+
+    render(<ActiveSession />)
+
+    const panel = screen.getByTestId('active-goal-panel')
+    expect(panel).toHaveTextContent('当前目标')
+    expect(panel).toHaveTextContent('自循环运行中')
+    expect(panel).toHaveTextContent('ship the smoke test')
+    expect(panel).toHaveTextContent('预算 0 / 2,000 tokens')
+    expect(panel).toHaveTextContent('续作次数 0')
+  })
+
   it('refreshes CLI tasks repeatedly while a turn is active', async () => {
     vi.useFakeTimers()
 
