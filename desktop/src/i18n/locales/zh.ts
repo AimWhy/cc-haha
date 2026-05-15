@@ -684,6 +684,20 @@ export const zh: Record<TranslationKey, string> = {
   'settings.computerUse.flagSystemKeys': '系统快捷键',
 
   // Settings > General
+  // Settings > General - Mode
+  'settings.general.modeTitle': '运行模式',
+  'settings.general.modeDescription': '选择应用程序数据的存储位置。默认模式下，如果设置了 CLAUDE_CONFIG_DIR 环境变量则使用该路径，否则使用系统目录。便携模式将数据存储在自定义目录中。',
+  'settings.general.modeDefault': '默认模式',
+  'settings.general.modePortable': '便携模式',
+  'settings.general.modeDefaultHint': 'CLAUDE_CONFIG_DIR 环境变量指定的路径，或系统目录（Windows 上为 %APPDATA%）。',
+  'settings.general.modePortableDir': '便携配置目录',
+  'settings.general.modeSwitchTitle': '切换模式？',
+  'settings.general.modeSwitchBody': '切换到{mode}？此更改需要重启后生效。',
+  'settings.general.modeSwitchConfirm': '切换，稍后重启',
+  'settings.general.modeRestartTitle': '需要重启',
+  'settings.general.modeRestartHint': '重启应用使模式切换生效。下次启动时将更新配置目录。',
+
+  // Settings > General
   'settings.general.appearanceTitle': '配色主题',
   'settings.general.appearanceDescription': '在经典暖色、暗色与纯白工作区之间切换。',
   'settings.general.appearance.light': '经典暖色',
