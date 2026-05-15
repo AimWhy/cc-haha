@@ -1076,6 +1076,167 @@ describe('MessageList nested tool calls', () => {
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
   })
 
+  it('does not pull a completed session back to the bottom when content resizes', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+
+    let resizeCallback: ResizeObserverCallback | null = null
+    class TestResizeObserver {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'idle',
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '生成一个 todo app',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: [
+                '已完成。',
+                '',
+                '```bash',
+                'cd /private/tmp/todo-app',
+                'npm run dev',
+                '```',
+              ].join('\n'),
+              timestamp: 2,
+            },
+          ],
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLDivElement
+    let scrollTop = 180
+    let scrollHeight = 1400
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    await waitFor(() => {
+      expect(resizeCallback).not.toBeNull()
+    })
+
+    scrollIntoView.mockClear()
+    scrollHeight = 1600
+    act(() => {
+      resizeCallback?.([], {} as ResizeObserver)
+    })
+
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(180)
+  })
+
+  it('does not pull a restored completed session back to the bottom from stale running state', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+
+    let resizeCallback: ResizeObserverCallback | null = null
+    class TestResizeObserver {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'thinking',
+          activeThinkingId: null,
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '复盘这个已完成会话',
+              timestamp: 1,
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: [
+                '这个会话已经完成。',
+                '',
+                '```tsx',
+                'export function TodoListView() {',
+                '  return <section>Done</section>',
+                '}',
+                '```',
+              ].join('\n'),
+              timestamp: 2,
+            },
+          ],
+          streamingText: '',
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLDivElement
+    let scrollTop = 260
+    let scrollHeight = 1800
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    await waitFor(() => {
+      expect(resizeCallback).not.toBeNull()
+    })
+
+    scrollIntoView.mockClear()
+    scrollHeight = 2100
+    act(() => {
+      resizeCallback?.([], {} as ResizeObserver)
+    })
+
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(260)
+  })
+
   it('restores a session scroll position when switching back to a tab', async () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {

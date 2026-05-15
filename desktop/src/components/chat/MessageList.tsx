@@ -540,6 +540,11 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const streamingText = sessionState?.streamingText ?? ''
   const activeThinkingId = sessionState?.activeThinkingId ?? null
   const agentTaskNotifications = sessionState?.agentTaskNotifications ?? {}
+  const shouldFollowContentResize =
+    streamingText.trim().length > 0 ||
+    chatState === 'streaming' ||
+    chatState === 'tool_executing' ||
+    (chatState === 'thinking' && Boolean(activeThinkingId))
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const scrollContentRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -669,13 +674,14 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     if (!content || typeof ResizeObserver === 'undefined') return
 
     const observer = new ResizeObserver(() => {
+      if (!shouldFollowContentResize) return
       if (!shouldAutoScrollRef.current) return
       scrollToBottom('auto')
     })
     observer.observe(content)
 
     return () => observer.disconnect()
-  }, [scrollToBottom])
+  }, [scrollToBottom, shouldFollowContentResize])
 
   const { toolResultMap, childToolCallsByParent, renderItems } = useMemo(
     () => buildRenderModel(messages),
