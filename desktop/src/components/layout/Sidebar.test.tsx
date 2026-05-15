@@ -2,10 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
 
-vi.mock('./ProjectFilter', () => ({
-  ProjectFilter: () => <div data-testid="project-filter" />,
-}))
-
 const desktopUiPreferencesApiMock = vi.hoisted(() => ({
   getPreferences: vi.fn(),
   updateSidebarPreferences: vi.fn(),
@@ -62,8 +58,8 @@ vi.mock('../../i18n', () => ({
       'sidebar.restoreProjectToSidebar': 'Restore to Sidebar',
       'sidebar.projectHidden': '{project} was removed from the sidebar.',
       'sidebar.newSessionInProject': 'New session in {project}',
-      'sidebar.showMoreSessions': 'Show {count} more',
-      'sidebar.showFewerSessions': 'Show fewer',
+      'sidebar.showMoreSessions': 'Expand display',
+      'sidebar.showFewerSessions': 'Collapse display',
       'sidebar.expandProject': 'Expand {project}',
       'sidebar.collapseProject': 'Collapse {project}',
       'sidebar.worktree': 'worktree',
@@ -205,8 +201,6 @@ describe('Sidebar', () => {
       activeSessionId: null,
       isLoading: false,
       error: null,
-      selectedProjects: [],
-      availableProjects: [],
       isBatchMode: false,
       selectedSessionIds: new Set(),
       fetchSessions,
@@ -282,10 +276,10 @@ describe('Sidebar', () => {
     expect(screen.queryByRole('button', { name: /Alpha hidden/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Alpha newest/ }).closest('[class*="pl-0"]')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand display' }))
 
     expect(screen.getByRole('button', { name: /Alpha hidden/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Show fewer' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Collapse display' })).toBeInTheDocument()
   })
 
   it('reorders project groups by dragging project headers while preserving expanded state', async () => {
@@ -307,7 +301,7 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show 5 more' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand display' }))
     expect(screen.getByRole('button', { name: /Alpha hidden/ })).toBeInTheDocument()
     expect(projectGroupNames().slice(0, 3)).toEqual(['alpha', 'beta', 'gamma'])
 
@@ -388,9 +382,15 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Show 8 more' }))
+    const expandButton = screen.getByRole('button', { name: 'Expand display' })
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false')
+    expect(expandButton.parentElement).toHaveClass('justify-start')
+    expect(expandButton).toHaveClass('text-[var(--color-text-tertiary)]', 'opacity-75')
+
+    fireEvent.click(expandButton)
 
     expect(screen.getByTestId('sidebar-project-session-list-workspace-alpha')).toHaveClass('max-h-[420px]', 'overflow-y-auto')
+    expect(screen.getByRole('button', { name: 'Collapse display' })).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('creates a new session from the project group context', async () => {
@@ -469,7 +469,7 @@ describe('Sidebar', () => {
     expect(window.localStorage.getItem(PROJECT_SORT_STORAGE_KEY)).toBe('createdAt')
   })
 
-  it('uses the project header menu to request archiving all visible sessions', () => {
+  it('hides archive-all from the project header menu', () => {
     const now = new Date().toISOString()
     useSessionStore.setState({
       sessions: [
@@ -481,12 +481,11 @@ describe('Sidebar', () => {
     render(<Sidebar />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Project menu' }))
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Archive all chats' }))
 
-    const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByText('Delete 2 sessions? This cannot be undone.')).toBeInTheDocument()
-    expect(within(dialog).getByText('Alpha Session')).toBeInTheDocument()
-    expect(within(dialog).getByText('Beta Session')).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'Archive all chats' })).not.toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Organize sidebar' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Sort condition' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('keeps project row actions hidden until project hover or focus', () => {
@@ -580,11 +579,10 @@ describe('Sidebar', () => {
     })
   })
 
-  it('restores hidden project state from localStorage and shows selected hidden projects for recovery', () => {
+  it('keeps hidden projects out of the sidebar without the removed project filter', () => {
     window.localStorage.setItem(PROJECT_HIDDEN_STORAGE_KEY, JSON.stringify(['/workspace/beta']))
     const now = new Date().toISOString()
     useSessionStore.setState({
-      selectedProjects: ['/workspace/beta'],
       sessions: [
         makeSession('alpha-1', 'Alpha Session', '/workspace/alpha', now),
         makeSession('beta-1', 'Beta Session', '/workspace/beta', now),
@@ -593,11 +591,9 @@ describe('Sidebar', () => {
 
     render(<Sidebar />)
 
-    expect(screen.queryByText('alpha')).not.toBeInTheDocument()
-    expect(screen.getByText('beta')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions for beta' }))
-    expect(screen.getByRole('menuitem', { name: 'Restore to Sidebar' })).toBeInTheDocument()
+    expect(screen.getByText('alpha')).toBeInTheDocument()
+    expect(screen.queryByText('beta')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-filter')).not.toBeInTheDocument()
   })
 
   it('uses server sidebar preferences across browser and desktop storage contexts', async () => {
@@ -917,11 +913,14 @@ describe('Sidebar', () => {
     expect(screen.getByRole('complementary')).toHaveAttribute('data-state', 'open')
   })
 
-  it('keeps the project filter section overflow visible for dropdown menus', () => {
+  it('renders search controls without the removed embedded project filter', () => {
     render(<Sidebar />)
 
-    expect(screen.getByTestId('sidebar-project-filter-section')).toHaveStyle({ overflow: 'visible' })
-    expect(screen.getByTestId('sidebar-project-filter-section')).toHaveClass('relative', 'z-20')
+    expect(screen.getByTestId('sidebar-search-controls-section')).toHaveStyle({ overflow: 'visible' })
+    expect(screen.getByTestId('sidebar-search-controls-section')).toHaveClass('relative', 'z-20')
+    expect(screen.getByPlaceholderText('Search sessions')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /All projects/i })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-filter')).not.toBeInTheDocument()
   })
 
   it('keeps the session list section in a constrained flex column for scrolling', () => {

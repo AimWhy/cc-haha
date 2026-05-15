@@ -110,8 +110,6 @@ describe('TabBar', () => {
       activeSessionId: null,
       isLoading: false,
       error: null,
-      selectedProjects: [],
-      availableProjects: [],
       isBatchMode: false,
       selectedSessionIds: new Set(),
     } as Partial<ReturnType<typeof useSessionStore.getState>>)

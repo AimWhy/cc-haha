@@ -1,9 +1,8 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Archive, Check, ChevronDown, Clock, Folder, FolderOpen, FolderPlus, MoreHorizontal, Pin, PinOff, RefreshCw, RotateCcw, SquarePen, X } from 'lucide-react'
+import { Check, ChevronDown, Clock, Folder, FolderOpen, FolderPlus, MoreHorizontal, Pin, PinOff, RefreshCw, RotateCcw, SquarePen, X } from 'lucide-react'
 import { useSessionStore } from '../../stores/sessionStore'
 import { useUIStore } from '../../stores/uiStore'
 import { useTranslation } from '../../i18n'
-import { ProjectFilter } from './ProjectFilter'
 import { ConfirmDialog } from '../shared/ConfirmDialog'
 import type { SessionListItem } from '../../types/session'
 import { useTabStore, SETTINGS_TAB_ID, SCHEDULED_TAB_ID } from '../../stores/tabStore'
@@ -43,7 +42,6 @@ type SidebarProps = {
 export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   const t = useTranslation()
   const sessions = useSessionStore((s) => s.sessions)
-  const selectedProjects = useSessionStore((s) => s.selectedProjects)
   const isLoading = useSessionStore((s) => s.isLoading)
   const error = useSessionStore((s) => s.error)
   const fetchSessions = useSessionStore((s) => s.fetchSessions)
@@ -107,15 +105,12 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
 
   const filteredSessions = useMemo(() => {
     let result = sessions
-    if (selectedProjects.length > 0) {
-      result = result.filter((s) => selectedProjects.includes(getSessionProjectKey(s)))
-    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
       result = result.filter((s) => s.title.toLowerCase().includes(q))
     }
     return result
-  }, [sessions, selectedProjects, searchQuery])
+  }, [sessions, searchQuery])
 
   const projectGroups = useMemo(() => groupByProject(filteredSessions, projectSortBy), [filteredSessions, projectSortBy])
   const orderedProjectGroups = useMemo(
@@ -125,9 +120,9 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
   const visibleProjectGroups = useMemo(() => {
     if (hiddenProjectKeys.size === 0) return orderedProjectGroups
     return orderedProjectGroups.filter((project) => (
-      !hiddenProjectKeys.has(project.key) || selectedProjects.includes(project.key)
+      !hiddenProjectKeys.has(project.key)
     ))
-  }, [hiddenProjectKeys, orderedProjectGroups, selectedProjects])
+  }, [hiddenProjectKeys, orderedProjectGroups])
   const showInitialLoading = isLoading && sessions.length === 0
   const filteredSessionIds = useMemo(() => filteredSessions.map((session) => session.id), [filteredSessions])
   const selectedCount = selectedSessionIds.size
@@ -444,12 +439,6 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
     setPendingBatchDeleteSessionIds([...new Set(ids)])
   }, [])
 
-  const requestArchiveAllVisibleSessions = useCallback(() => {
-    setProjectHeaderMenu(null)
-    setProjectHeaderSubmenu(null)
-    requestBatchDelete(filteredSessionIds)
-  }, [filteredSessionIds, requestBatchDelete])
-
   const confirmBatchDelete = useCallback(async () => {
     const ids = pendingBatchDeleteSessionIds ?? []
     if (ids.length === 0) return
@@ -668,14 +657,12 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
       {expanded ? (
         <>
           <div
-            data-testid="sidebar-project-filter-section"
+            data-testid="sidebar-search-controls-section"
             className="sidebar-section sidebar-section--visible relative z-20 flex-none px-3 pb-2"
             style={{ overflow: 'visible' }}
           >
             <div className="flex items-center gap-1.5">
-              <div className="flex h-9 min-w-0 flex-1 items-center rounded-[14px] border border-[var(--color-sidebar-search-border)] bg-[var(--color-sidebar-search-bg)] pl-1.5 pr-3 transition-colors focus-within:border-[var(--color-border-focus)]">
-                <ProjectFilter variant="embedded" />
-                <span className="mx-2 h-4 w-px bg-[var(--color-border)]/80" aria-hidden="true" />
+              <div className="flex h-9 min-w-0 flex-1 items-center rounded-[14px] border border-[var(--color-sidebar-search-border)] bg-[var(--color-sidebar-search-bg)] pl-3 pr-3 transition-colors focus-within:border-[var(--color-border-focus)]">
                 <span className="pointer-events-none flex shrink-0 items-center text-[var(--color-text-tertiary)]">
                   <SearchIcon />
                 </span>
@@ -980,23 +967,16 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
                           ))}
                         </div>
                         {(hiddenCount > 0 || sessionsExpanded) && (
-                          <div className="mt-2 flex justify-center">
+                          <div className="mt-2 flex justify-start px-2.5">
                             <button
                               type="button"
                               onClick={() => toggleProjectSessionExpansion(project.key)}
-                              className="inline-flex items-center justify-center gap-1 rounded-full bg-[var(--color-surface-container-lowest)] px-3 py-1.5 text-[11px] font-medium text-[var(--color-text-tertiary)] shadow-sm transition-colors hover:bg-[var(--color-sidebar-item-hover)] hover:text-[var(--color-text-secondary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
+                              className="inline-flex items-center justify-start py-1 text-[13px] font-semibold text-[var(--color-text-tertiary)] opacity-75 transition-[color,opacity] hover:text-[var(--color-text-secondary)] hover:opacity-100 focus-visible:rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)]"
                               aria-expanded={sessionsExpanded}
                             >
-                              <span>
-                                {sessionsExpanded
-                                  ? t('sidebar.showFewerSessions')
-                                  : t('sidebar.showMoreSessions', { count: hiddenCount })}
-                              </span>
-                              <ChevronDown
-                                className={`h-3.5 w-3.5 transition-transform ${sessionsExpanded ? 'rotate-180' : ''}`}
-                                strokeWidth={1.8}
-                                aria-hidden="true"
-                              />
+                              {sessionsExpanded
+                                ? t('sidebar.showFewerSessions')
+                                : t('sidebar.showMoreSessions')}
                             </button>
                           </div>
                         )}
@@ -1101,7 +1081,6 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
           y={projectHeaderMenu.y}
           organization={projectOrganization}
           sortBy={projectSortBy}
-          onArchiveAll={requestArchiveAllVisibleSessions}
           onOpenSubmenu={openProjectHeaderSubmenu}
           onSetOrganization={updateProjectOrganization}
           onSetSortBy={updateProjectSortBy}
@@ -1118,7 +1097,6 @@ export function Sidebar({ isMobile = false, onRequestClose }: SidebarProps) {
           y={projectHeaderSubmenu.y}
           organization={projectOrganization}
           sortBy={projectSortBy}
-          onArchiveAll={requestArchiveAllVisibleSessions}
           onOpenSubmenu={openProjectHeaderSubmenu}
           onSetOrganization={updateProjectOrganization}
           onSetSortBy={updateProjectSortBy}
@@ -1283,7 +1261,6 @@ function ProjectHeaderMenu({
   y,
   organization,
   sortBy,
-  onArchiveAll,
   onOpenSubmenu,
   onSetOrganization,
   onSetSortBy,
@@ -1296,7 +1273,6 @@ function ProjectHeaderMenu({
   y: number
   organization: SidebarProjectOrganization
   sortBy: SidebarProjectSortBy
-  onArchiveAll: () => void
   onOpenSubmenu: (event: React.MouseEvent, type: 'organize' | 'sort') => void
   onSetOrganization: (organization: SidebarProjectOrganization) => void
   onSetSortBy: (sortBy: SidebarProjectSortBy) => void
@@ -1352,10 +1328,6 @@ function ProjectHeaderMenu({
 
   return (
     <div role="menu" className={className} style={style} onClick={(event) => event.stopPropagation()}>
-      <HeaderMenuItem icon={<Archive size={18} aria-hidden="true" />} onClick={onArchiveAll}>
-        {t('sidebar.archiveAllChats')}
-      </HeaderMenuItem>
-      <div className="mx-4 my-1.5 border-t border-[var(--color-border)]" />
       <HeaderMenuItem
         icon={<Folder size={18} aria-hidden="true" />}
         trailing
