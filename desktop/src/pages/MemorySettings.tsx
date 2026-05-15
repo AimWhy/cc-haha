@@ -1,18 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { MouseEvent, ReactNode } from 'react'
-import { BookOpenText, ChevronDown, ChevronRight, Database, FileText, Folder, FolderGit2, FolderOpen, MoreHorizontal, Pin, PinOff, RefreshCw, RotateCcw, Save, Search, X } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { BookOpenText, ChevronDown, ChevronRight, Database, FileText, Folder, FolderGit2, RefreshCw, RotateCcw, Save, Search, X } from 'lucide-react'
 import { Button } from '../components/shared/Button'
 import { MarkdownRenderer } from '../components/markdown/MarkdownRenderer'
 import { useTranslation } from '../i18n'
 import { formatBytes } from '../lib/formatBytes'
 import { useMemoryStore } from '../stores/memoryStore'
-import { useOpenTargetStore } from '../stores/openTargetStore'
 import { useSessionStore } from '../stores/sessionStore'
 import { useUIStore } from '../stores/uiStore'
 import type { MemoryFile, MemoryProject } from '../types/memory'
 
 const DEFAULT_MEMORY_PATH = 'MEMORY.md'
-const PINNED_MEMORY_PROJECTS_STORAGE_KEY = 'cc-haha-memory-pinned-projects'
 
 export function MemorySettings() {
   const t = useTranslation()
@@ -37,14 +35,11 @@ export function MemorySettings() {
   } = useMemoryStore()
   const sessions = useSessionStore((s) => s.sessions)
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
-  const addToast = useUIStore((s) => s.addToast)
   const pendingMemoryPath = useUIStore((s) => s.pendingMemoryPath)
   const setPendingMemoryPath = useUIStore((s) => s.setPendingMemoryPath)
   const [resourceQuery, setResourceQuery] = useState('')
   const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null)
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set())
-  const [pinnedProjectIds, setPinnedProjectIds] = useState<Set<string>>(() => readPinnedMemoryProjects())
-  const [projectMenu, setProjectMenu] = useState<{ projectId: string; x: number; y: number } | null>(null)
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
@@ -56,18 +51,6 @@ export function MemorySettings() {
   const filteredProjects = useMemo(
     () => filterProjects(projects, resourceQuery, selectedProjectId, files),
     [files, projects, resourceQuery, selectedProjectId],
-  )
-  const orderedProjects = useMemo(
-    () => orderMemoryProjects(filteredProjects, pinnedProjectIds),
-    [filteredProjects, pinnedProjectIds],
-  )
-  const pinnedProjects = useMemo(
-    () => orderedProjects.filter((project) => pinnedProjectIds.has(project.id)),
-    [orderedProjects, pinnedProjectIds],
-  )
-  const regularProjects = useMemo(
-    () => orderedProjects.filter((project) => !pinnedProjectIds.has(project.id)),
-    [orderedProjects, pinnedProjectIds],
   )
   const filteredFiles = useMemo(
     () => filterFiles(files, resourceQuery),
@@ -92,20 +75,6 @@ export function MemorySettings() {
     if (!selectedProjectId) return
     setExpandedProjectId(selectedProjectId)
   }, [selectedProjectId])
-
-  useEffect(() => {
-    if (!projectMenu) return
-    const close = () => setProjectMenu(null)
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setProjectMenu(null)
-    }
-    document.addEventListener('click', close)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('click', close)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [projectMenu])
 
   useEffect(() => {
     if (!selectedProjectId || selectedFile || isLoadingFiles || isLoadingFile) return
@@ -167,40 +136,6 @@ export function MemorySettings() {
   const handleFileOpen = (file: MemoryFile) => {
     if (!selectedProjectId || file.path === selectedFile?.path) return
     void openFile(selectedProjectId, file.path)
-  }
-
-  const togglePinnedProject = (projectId: string) => {
-    setProjectMenu(null)
-    setPinnedProjectIds((previous) => {
-      const next = new Set(previous)
-      if (next.has(projectId)) {
-        next.delete(projectId)
-      } else {
-        next.add(projectId)
-      }
-      writePinnedMemoryProjects(next)
-      return next
-    })
-  }
-
-  const openProjectInFinder = async (project: MemoryProject) => {
-    setProjectMenu(null)
-    try {
-      const store = useOpenTargetStore.getState()
-      await store.ensureTargets()
-      const latest = useOpenTargetStore.getState()
-      const target = latest.targets.find((item) => item.id === 'finder')
-        ?? latest.targets.find((item) => item.kind === 'file_manager')
-      if (!target) {
-        throw new Error(t('settings.memory.openInFinderUnavailable'))
-      }
-      await latest.openTarget(target.id, resolveMemoryProjectOpenPath(project))
-    } catch (error) {
-      addToast({
-        type: 'error',
-        message: error instanceof Error ? error.message : t('settings.memory.openInFinderFailed'),
-      })
-    }
   }
 
   const toggleFolder = (path: string) => {
@@ -301,72 +236,32 @@ export function MemorySettings() {
             <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {projects.length === 0 && !isLoadingProjects ? (
                 <EmptyState icon={<FolderGit2 size={18} />} text={t('settings.memory.emptyProjects')} />
-              ) : orderedProjects.length === 0 ? (
+              ) : filteredProjects.length === 0 ? (
                 <EmptyState icon={<Search size={18} />} text={t('settings.memory.noProjectMatches')} />
               ) : (
-                <div className="space-y-3 py-1">
-                  {pinnedProjects.length > 0 ? (
-                    <MemoryProjectSection title={t('settings.memory.pinnedProjects')}>
-                      {pinnedProjects.map((project) => {
-                        const isExpanded = project.id === expandedProjectId
-                        const isSelected = project.id === selectedProjectId
-                        const visibleFileTree = isSelected ? fileTree : []
-                        return (
-                          <ProjectTreeRow
-                            key={project.id}
-                            project={project}
-                            expanded={isExpanded}
-                            active={isSelected}
-                            pinned
-                            loading={isSelected && isLoadingFiles}
-                            fileTree={visibleFileTree}
-                            activePath={selectedFile?.path ?? null}
-                            collapsedFolders={collapsedFolders}
-                            forceExpanded={forceExpandFiles}
-                            onToggle={() => handleProjectToggle(project.id)}
-                            onOpenMenu={(event) => {
-                              event.stopPropagation()
-                              setProjectMenu(positionProjectMenu(project.id, event.clientX, event.clientY))
-                            }}
-                            onToggleFolder={toggleFolder}
-                            onFileSelect={handleFileOpen}
-                            emptyText={t('settings.memory.emptyFiles')}
-                          />
-                        )
-                      })}
-                    </MemoryProjectSection>
-                  ) : null}
-                  {regularProjects.length > 0 ? (
-                    <MemoryProjectSection title={pinnedProjects.length > 0 ? t('settings.memory.projects') : undefined}>
-                      {regularProjects.map((project) => {
-                        const isExpanded = project.id === expandedProjectId
-                        const isSelected = project.id === selectedProjectId
-                        const visibleFileTree = isSelected ? fileTree : []
-                        return (
-                          <ProjectTreeRow
-                            key={project.id}
-                            project={project}
-                            expanded={isExpanded}
-                            active={isSelected}
-                            pinned={false}
-                            loading={isSelected && isLoadingFiles}
-                            fileTree={visibleFileTree}
-                            activePath={selectedFile?.path ?? null}
-                            collapsedFolders={collapsedFolders}
-                            forceExpanded={forceExpandFiles}
-                            onToggle={() => handleProjectToggle(project.id)}
-                            onOpenMenu={(event) => {
-                              event.stopPropagation()
-                              setProjectMenu(positionProjectMenu(project.id, event.clientX, event.clientY))
-                            }}
-                            onToggleFolder={toggleFolder}
-                            onFileSelect={handleFileOpen}
-                            emptyText={t('settings.memory.emptyFiles')}
-                          />
-                        )
-                      })}
-                    </MemoryProjectSection>
-                  ) : null}
+                <div className="py-1">
+                  {filteredProjects.map((project) => {
+                    const isExpanded = project.id === expandedProjectId
+                    const isSelected = project.id === selectedProjectId
+                    const visibleFileTree = isSelected ? fileTree : []
+                    return (
+                      <ProjectTreeRow
+                        key={project.id}
+                        project={project}
+                        expanded={isExpanded}
+                        active={isSelected}
+                        loading={isSelected && isLoadingFiles}
+                        fileTree={visibleFileTree}
+                        activePath={selectedFile?.path ?? null}
+                        collapsedFolders={collapsedFolders}
+                        forceExpanded={forceExpandFiles}
+                        onToggle={() => handleProjectToggle(project.id)}
+                        onToggleFolder={toggleFolder}
+                        onFileSelect={handleFileOpen}
+                        emptyText={t('settings.memory.emptyFiles')}
+                      />
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -429,17 +324,6 @@ export function MemorySettings() {
           )}
         </section>
       </div>
-
-      {projectMenu ? (
-        <MemoryProjectMenu
-          project={orderedProjects.find((project) => project.id === projectMenu.projectId) ?? null}
-          x={projectMenu.x}
-          y={projectMenu.y}
-          pinned={pinnedProjectIds.has(projectMenu.projectId)}
-          onTogglePin={() => togglePinnedProject(projectMenu.projectId)}
-          onOpenInFinder={(project) => void openProjectInFinder(project)}
-        />
-      ) : null}
     </div>
   )
 }
@@ -527,31 +411,16 @@ function PanelHeader({ icon, title, meta }: { icon?: ReactNode; title: string; m
   )
 }
 
-function MemoryProjectSection({ title, children }: { title?: string; children: ReactNode }) {
-  return (
-    <div>
-      {title ? (
-        <div className="px-2 pb-1 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
-          {title}
-        </div>
-      ) : null}
-      {children}
-    </div>
-  )
-}
-
 function ProjectTreeRow({
   project,
   expanded,
   active,
-  pinned,
   loading,
   fileTree,
   activePath,
   collapsedFolders,
   forceExpanded,
   onToggle,
-  onOpenMenu,
   onToggleFolder,
   onFileSelect,
   emptyText,
@@ -559,14 +428,12 @@ function ProjectTreeRow({
   project: MemoryProject
   expanded: boolean
   active: boolean
-  pinned: boolean
   loading: boolean
   fileTree: MemoryTreeNode[]
   activePath: string | null
   collapsedFolders: Set<string>
   forceExpanded: boolean
   onToggle: () => void
-  onOpenMenu: (event: MouseEvent<HTMLButtonElement>) => void
   onToggleFolder: (path: string) => void
   onFileSelect: (file: MemoryFile) => void
   emptyText: string
@@ -575,40 +442,25 @@ function ProjectTreeRow({
   const display = projectDisplayName(project.label)
   return (
     <div className="mb-0.5">
-      <div
+      <button
+        type="button"
         data-testid="memory-project-row"
+        onClick={onToggle}
+        title={project.label}
+        aria-expanded={expanded}
+        aria-label={t('settings.memory.toggleFolder', { name: display })}
         className={`group flex min-h-9 w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors focus:outline-none focus-visible:shadow-[var(--shadow-focus-ring)] ${
           active
             ? 'bg-[var(--color-surface-selected)] text-[var(--color-text-primary)]'
             : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)]'
         }`}
       >
-        <button
-          type="button"
-          onClick={onToggle}
-          title={project.label}
-          aria-expanded={expanded}
-          aria-label={t('settings.memory.toggleFolder', { name: display })}
-          className="flex min-w-0 flex-1 items-center gap-1.5 text-left outline-none focus-visible:shadow-[var(--shadow-focus-ring)]"
-        >
-          <Folder size={15} className="shrink-0 text-[var(--color-brand)]" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">{display}</span>
-          {pinned ? <Pin size={13} className="shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" /> : null}
-          {!project.exists ? (
-            <span className="shrink-0 text-xs text-[var(--color-text-tertiary)]">{t('settings.memory.missing')}</span>
-          ) : null}
-        </button>
-        <span className="ml-0.5 flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <button
-            type="button"
-            onClick={onOpenMenu}
-            aria-label={t('settings.memory.projectActions', { name: display })}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-[var(--color-text-tertiary)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text-primary)] focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus-ring)]"
-          >
-            <MoreHorizontal size={16} aria-hidden="true" />
-          </button>
-        </span>
-      </div>
+        <Folder size={15} className="shrink-0 text-[var(--color-brand)]" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{display}</span>
+        {!project.exists ? (
+          <span className="shrink-0 text-xs text-[var(--color-text-tertiary)]">{t('settings.memory.missing')}</span>
+        ) : null}
+      </button>
 
       {expanded ? (
         <div className="ml-[18px] border-l border-[var(--color-border)] pl-2">
@@ -728,53 +580,6 @@ function MemoryTreeRow({
   )
 }
 
-function MemoryProjectMenu({
-  project,
-  x,
-  y,
-  pinned,
-  onTogglePin,
-  onOpenInFinder,
-}: {
-  project: MemoryProject | null
-  x: number
-  y: number
-  pinned: boolean
-  onTogglePin: () => void
-  onOpenInFinder: (project: MemoryProject) => void
-}) {
-  const t = useTranslation()
-  if (!project) return null
-
-  return (
-    <div
-      role="menu"
-      className="fixed z-50 min-w-[220px] overflow-hidden rounded-[18px] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] py-2 shadow-[var(--shadow-dropdown)]"
-      style={{ left: x, top: y }}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        type="button"
-        role="menuitem"
-        onClick={onTogglePin}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:bg-[var(--color-surface-hover)]"
-      >
-        {pinned ? <PinOff size={17} aria-hidden="true" /> : <Pin size={17} aria-hidden="true" />}
-        <span>{pinned ? t('settings.memory.unpinProject') : t('settings.memory.pinProject')}</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => onOpenInFinder(project)}
-        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm font-semibold text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:bg-[var(--color-surface-hover)]"
-      >
-        <FolderOpen size={17} aria-hidden="true" />
-        <span>{t('settings.memory.openInFinder')}</span>
-      </button>
-    </div>
-  )
-}
-
 function Badge({ children }: { children: string }) {
   return (
     <span className="shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--color-text-secondary)]">
@@ -824,60 +629,11 @@ function filterFiles(files: MemoryFile[], query: string): MemoryFile[] {
   )
 }
 
-function orderMemoryProjects(projects: MemoryProject[], pinnedProjectIds: Set<string>): MemoryProject[] {
-  return [...projects].sort((a, b) => {
-    const aPinned = pinnedProjectIds.has(a.id)
-    const bPinned = pinnedProjectIds.has(b.id)
-    if (aPinned !== bPinned) return aPinned ? -1 : 1
-    return 0
-  })
-}
-
 function projectDisplayName(label: string): string {
   const normalized = label.replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/$/, '')
   const parts = normalized.split('/').filter(Boolean)
   if (parts.length >= 2) return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`
   return parts[0] ?? label
-}
-
-function readPinnedMemoryProjects(): Set<string> {
-  if (typeof window === 'undefined') return new Set()
-  try {
-    const raw = window.localStorage.getItem(PINNED_MEMORY_PROJECTS_STORAGE_KEY)
-    if (!raw) return new Set()
-    const parsed = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return new Set()
-    return new Set(parsed.filter((item): item is string => typeof item === 'string' && item.length > 0))
-  } catch {
-    return new Set()
-  }
-}
-
-function writePinnedMemoryProjects(projectIds: Set<string>) {
-  if (typeof window === 'undefined') return
-  try {
-    window.localStorage.setItem(PINNED_MEMORY_PROJECTS_STORAGE_KEY, JSON.stringify([...projectIds]))
-  } catch {
-    // Ignore storage failures; pinning remains a session-local UI preference.
-  }
-}
-
-function positionProjectMenu(projectId: string, clientX: number, clientY: number) {
-  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
-  const viewportHeight = typeof window === 'undefined' ? 768 : window.innerHeight
-  return {
-    projectId,
-    x: Math.max(8, Math.min(clientX, viewportWidth - 236)),
-    y: Math.max(8, Math.min(clientY + 6, viewportHeight - 120)),
-  }
-}
-
-function resolveMemoryProjectOpenPath(project: MemoryProject): string {
-  return isLikelyAbsolutePath(project.label) ? project.label : project.memoryDir
-}
-
-function isLikelyAbsolutePath(value: string): boolean {
-  return value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value)
 }
 
 function stripMarkdownFrontmatter(content: string): string {

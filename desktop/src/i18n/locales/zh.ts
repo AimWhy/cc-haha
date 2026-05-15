@@ -558,7 +558,6 @@ export const zh: Record<TranslationKey, string> = {
   'settings.memory.refresh': '刷新',
   'settings.memory.projects': '项目',
   'settings.memory.files': '记忆文件',
-  'settings.memory.pinnedProjects': '置顶项目',
   'settings.memory.resourceManager': '资源管理器',
   'settings.memory.editor': '编辑',
   'settings.memory.preview': '预览',
@@ -582,12 +581,6 @@ export const zh: Record<TranslationKey, string> = {
   'settings.memory.noFileMatches': '没有匹配的记忆文件。',
   'settings.memory.clearSearch': '清空搜索',
   'settings.memory.toggleFolder': '展开或折叠 {name}',
-  'settings.memory.projectActions': '{name} 的项目操作',
-  'settings.memory.pinProject': '置顶项目',
-  'settings.memory.unpinProject': '取消置顶',
-  'settings.memory.openInFinder': '在“访达”中打开',
-  'settings.memory.openInFinderFailed': '无法在访达中打开项目。',
-  'settings.memory.openInFinderUnavailable': '没有可用的文件管理器。',
 
   // Settings > Plugins
   'settings.plugins.title': '已安装插件',

@@ -556,7 +556,6 @@ export const en = {
   'settings.memory.refresh': 'Refresh',
   'settings.memory.projects': 'Projects',
   'settings.memory.files': 'Memory files',
-  'settings.memory.pinnedProjects': 'Pinned projects',
   'settings.memory.resourceManager': 'Resource manager',
   'settings.memory.editor': 'Editor',
   'settings.memory.preview': 'Preview',
@@ -580,12 +579,6 @@ export const en = {
   'settings.memory.noFileMatches': 'No memory files match this search.',
   'settings.memory.clearSearch': 'Clear search',
   'settings.memory.toggleFolder': 'Toggle {name}',
-  'settings.memory.projectActions': 'Project actions for {name}',
-  'settings.memory.pinProject': 'Pin project',
-  'settings.memory.unpinProject': 'Unpin project',
-  'settings.memory.openInFinder': 'Open in Finder',
-  'settings.memory.openInFinderFailed': 'Could not open the project in Finder.',
-  'settings.memory.openInFinderUnavailable': 'No file manager is available.',
 
   // Settings > Plugins
   'settings.plugins.title': 'Installed Plugins',

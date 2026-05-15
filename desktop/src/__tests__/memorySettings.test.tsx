@@ -8,36 +8,17 @@ import { useSessionStore } from '../stores/sessionStore'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useUIStore } from '../stores/uiStore'
 
-const { memoryApiMock, openTargetStoreMock } = vi.hoisted(() => ({
+const { memoryApiMock } = vi.hoisted(() => ({
   memoryApiMock: {
     listProjects: vi.fn(),
     listFiles: vi.fn(),
     readFile: vi.fn(),
     saveFile: vi.fn(),
   },
-  openTargetStoreMock: {
-    targets: [{ id: 'finder', kind: 'file_manager', label: 'Finder', icon: 'finder', platform: 'darwin' }],
-    platform: 'darwin',
-    primaryTargetId: 'finder',
-    lastSuccessfulTargetId: null,
-    loading: false,
-    error: null,
-    fetchedAt: 1,
-    ensureTargets: vi.fn(),
-    refreshTargets: vi.fn(),
-    openTarget: vi.fn(),
-  },
 }))
 
 vi.mock('../api/memory', () => ({
   memoryApi: memoryApiMock,
-}))
-
-vi.mock('../stores/openTargetStore', () => ({
-  useOpenTargetStore: Object.assign(
-    (selector: (state: typeof openTargetStoreMock) => unknown) => selector(openTargetStoreMock),
-    { getState: () => openTargetStoreMock },
-  ),
 }))
 
 vi.mock('../components/markdown/MarkdownRenderer', () => ({
@@ -49,11 +30,6 @@ vi.mock('../components/markdown/MarkdownRenderer', () => ({
 describe('MemorySettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.localStorage.removeItem('cc-haha-memory-pinned-projects')
-    openTargetStoreMock.targets = [{ id: 'finder', kind: 'file_manager', label: 'Finder', icon: 'finder', platform: 'darwin' }]
-    openTargetStoreMock.primaryTargetId = 'finder'
-    openTargetStoreMock.ensureTargets.mockResolvedValue(undefined)
-    openTargetStoreMock.openTarget.mockResolvedValue(undefined)
     useSettingsStore.setState({ locale: 'en' })
     useSessionStore.setState({
       sessions: [
@@ -198,56 +174,6 @@ describe('MemorySettings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Toggle workspace/beta' }))
     await waitFor(() => {
       expect(useMemoryStore.getState().selectedProjectId).toBe('-workspace-beta')
-    })
-  })
-
-  it('pins projects above the regular project list from the project menu', async () => {
-    memoryApiMock.listProjects.mockResolvedValue({
-      projects: [
-        {
-          id: '-workspace-alpha',
-          label: '/workspace/alpha',
-          memoryDir: '/tmp/claude/projects/-workspace-alpha/memory',
-          exists: true,
-          fileCount: 1,
-          isCurrent: true,
-        },
-        {
-          id: '-workspace-beta',
-          label: '/workspace/beta',
-          memoryDir: '/tmp/claude/projects/-workspace-beta/memory',
-          exists: true,
-          fileCount: 2,
-          isCurrent: false,
-        },
-      ],
-    })
-
-    render(<MemorySettings />)
-
-    expect(await screen.findAllByText('workspace/alpha')).not.toHaveLength(0)
-    expect(await screen.findByText('workspace/beta')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions for workspace/beta' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Pin project' }))
-
-    expect(screen.getByText('Pinned projects')).toBeInTheDocument()
-    const projectRows = screen.getAllByTestId('memory-project-row')
-    expect(projectRows[0]).toHaveTextContent('workspace/beta')
-    expect(window.localStorage.getItem('cc-haha-memory-pinned-projects')).toContain('-workspace-beta')
-  })
-
-  it('opens a memory project in Finder through the existing open target flow', async () => {
-    render(<MemorySettings />)
-
-    expect(await screen.findAllByText('workspace/demo')).not.toHaveLength(0)
-
-    fireEvent.click(screen.getByRole('button', { name: 'Project actions for workspace/demo' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Open in Finder' }))
-
-    await waitFor(() => {
-      expect(openTargetStoreMock.ensureTargets).toHaveBeenCalled()
-      expect(openTargetStoreMock.openTarget).toHaveBeenCalledWith('finder', '/workspace/demo')
     })
   })
 
