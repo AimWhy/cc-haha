@@ -101,6 +101,7 @@ async function selectMessageText(element: Element, text: string) {
 describe('MessageList nested tool calls', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
     useSettingsStore.setState({ locale: 'en' })
     useUIStore.setState({ pendingSettingsTab: null })
     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
@@ -929,7 +930,8 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => {
       expect(screen.getByText('streaming next token')).toBeTruthy()
     })
-    expect(scrollIntoView).toHaveBeenCalled()
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(600)
   })
 
   it('keeps mobile H5 streaming output pinned after the transcript height grows', async () => {
@@ -994,12 +996,83 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => {
       expect(screen.getByText('streaming next token after height change')).toBeTruthy()
     })
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' })
+    expect(scrollIntoView).not.toHaveBeenCalled()
     expect(scrollTop).toBe(1000)
 
     await waitForProgrammaticScrollReset()
     fireEvent.scroll(scroller)
 
+    expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
+  })
+
+  it('keeps H5 pinned when streaming content resizes after render', async () => {
+    const scrollIntoView = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+
+    let resizeCallback: ResizeObserverCallback | null = null
+    class TestResizeObserver {
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback
+      }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          chatState: 'streaming',
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: '移动端异步重排',
+              timestamp: 1,
+            },
+          ],
+          streamingText: 'streaming',
+        }),
+      },
+    })
+
+    const { container } = render(<MessageList />)
+    const scroller = container.querySelector('.overflow-y-auto') as HTMLDivElement
+    let scrollTop = 552
+    let scrollHeight = 1000
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scrollHeight,
+    })
+    Object.defineProperty(scroller, 'clientHeight', { configurable: true, value: 400 })
+    Object.defineProperty(scroller, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value) => {
+        scrollTop = value
+      },
+    })
+
+    await waitFor(() => {
+      expect(resizeCallback).not.toBeNull()
+    })
+    await waitForProgrammaticScrollReset()
+    fireEvent.scroll(scroller)
+    expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
+
+    scrollIntoView.mockClear()
+    scrollHeight = 1600
+    act(() => {
+      resizeCallback?.([], {} as ResizeObserver)
+    })
+
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(1200)
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
   })
 
@@ -1123,8 +1196,9 @@ describe('MessageList nested tool calls', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Fresh latest response')).toBeTruthy()
-      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'end' })
+      expect(scrollIntoView).not.toHaveBeenCalled()
     })
+    expect(scroller.scrollTop).toBe(800)
   })
 
   it('shows a latest button when reading history and resumes following after clicking it', async () => {
@@ -1169,7 +1243,8 @@ describe('MessageList nested tool calls', () => {
     fireEvent.scroll(scroller)
     fireEvent.click(screen.getByRole('button', { name: 'Latest' }))
 
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' })
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(600)
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
 
     scrollIntoView.mockClear()
@@ -1188,7 +1263,8 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => {
       expect(screen.getByText('streaming after jump')).toBeTruthy()
     })
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' })
+    expect(scrollIntoView).not.toHaveBeenCalled()
+    expect(scrollTop).toBe(600)
   })
 
   it('jumps to the latest message when the user sends a new prompt from history', async () => {
@@ -1261,7 +1337,7 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => {
       expect(screen.getByText('新的问题')).toBeTruthy()
     })
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'end' })
+    expect(scrollIntoView).not.toHaveBeenCalled()
     expect(scrollTop).toBe(600)
     expect(screen.queryByRole('button', { name: 'Latest' })).toBeNull()
   })

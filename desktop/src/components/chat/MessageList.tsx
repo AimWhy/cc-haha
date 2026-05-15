@@ -541,7 +541,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
   const activeThinkingId = sessionState?.activeThinkingId ?? null
   const agentTaskNotifications = sessionState?.agentTaskNotifications ?? {}
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContentRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
   const isProgrammaticScrollingRef = useRef(false)
   const lastSessionIdRef = useRef<string | null | undefined>(resolvedSessionId)
@@ -562,9 +562,16 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     const container = scrollContainerRef.current
     const targetScrollTop = container ? getBottomScrollTop(container) : null
     if (container) {
-      container.scrollTop = targetScrollTop ?? 0
+      const nextScrollTop = targetScrollTop ?? 0
+      if (typeof container.scrollTo === 'function') {
+        try {
+          container.scrollTo({ top: nextScrollTop, behavior })
+        } catch {
+          container.scrollTo(0, nextScrollTop)
+        }
+      }
+      container.scrollTop = nextScrollTop
     }
-    bottomRef.current?.scrollIntoView?.({ behavior, block: 'end' })
     if (container && resolvedSessionId) {
       sessionScrollSnapshots.set(resolvedSessionId, {
         scrollTop: getBottomScrollTop(container),
@@ -640,7 +647,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
     if (previousTailMessageId === undefined || previousTailMessageId === tailMessageId) return
 
     if (tailMessageType === 'user_text' && chatState !== 'idle') {
-      scrollToBottom('smooth')
+      scrollToBottom('auto')
     }
   }, [chatState, resolvedSessionId, scrollToBottom, tailMessageId, tailMessageType])
 
@@ -650,11 +657,24 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
       return
     }
 
-    scrollToBottom('smooth')
+    scrollToBottom('auto')
   }, [messages.length, resolvedSessionId, scrollToBottom, streamingText])
 
   const handleJumpToLatest = useCallback(() => {
-    scrollToBottom('smooth')
+    scrollToBottom('auto')
+  }, [scrollToBottom])
+
+  useEffect(() => {
+    const content = scrollContentRef.current
+    if (!content || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => {
+      if (!shouldAutoScrollRef.current) return
+      scrollToBottom('auto')
+    })
+    observer.observe(content)
+
+    return () => observer.disconnect()
   }, [scrollToBottom])
 
   const { toolResultMap, childToolCallsByParent, renderItems } = useMemo(
@@ -861,6 +881,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
         className={`${CHAT_SCROLL_AREA_CLASS} h-full overflow-y-auto ${compact ? 'px-3 py-3 pb-5' : 'px-4 py-4'}`}
       >
         <div
+          ref={scrollContentRef}
           className={compact ? 'mx-auto max-w-full' : 'mx-auto max-w-[860px]'}
           role={shouldVirtualize ? 'list' : undefined}
         >
@@ -950,7 +971,7 @@ export function MessageList({ sessionId, compact = false }: MessageListProps = {
             </div>
           )}
 
-          <div ref={bottomRef} />
+          <div />
         </div>
       </div>
 
