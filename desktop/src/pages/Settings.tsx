@@ -9,7 +9,7 @@ import { ConfirmDialog } from '../components/shared/ConfirmDialog'
 import { Input } from '../components/shared/Input'
 import { Button } from '../components/shared/Button'
 import { Dropdown } from '../components/shared/Dropdown'
-import type { PermissionMode, EffortLevel, ThemeMode, WebSearchMode } from '../types/settings'
+import type { PermissionMode, EffortLevel, ThemeMode, WebSearchMode, AppMode } from '../types/settings'
 import type { Locale } from '../i18n'
 import type { SavedProvider, UpdateProviderInput, ProviderTestResult, ModelMapping, ApiFormat, ProviderAuthStrategy } from '../types/provider'
 import type { ProviderPreset } from '../types/providerPreset'
@@ -1382,11 +1382,17 @@ function GeneralSettings() {
     setWebSearch,
     responseLanguage,
     setResponseLanguage,
+    appMode,
+    appModeRequiresRestart,
+    fetchAppMode,
+    setAppMode: setAppModeAction,
   } = useSettingsStore()
   const t = useTranslation()
   const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
   const [notificationPermission, setNotificationPermission] = useState<DesktopNotificationPermission>('default')
   const [notificationActionRunning, setNotificationActionRunning] = useState(false)
+  const [modeSwitchConfirmOpen, setModeSwitchConfirmOpen] = useState(false)
+  const [pendingMode, setPendingMode] = useState<AppMode | null>(null)
   const webSearchDirty = JSON.stringify(webSearchDraft) !== JSON.stringify(webSearch)
 
   useEffect(() => {
@@ -1402,6 +1408,11 @@ function GeneralSettings() {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    void fetchAppMode()
+  }, [fetchAppMode])
 
   const EFFORT_LABELS: Record<EffortLevel, string> = {
     low: t('settings.general.effort.low'),
@@ -1510,6 +1521,79 @@ function GeneralSettings() {
 
   return (
     <div className="max-w-xl">
+      {/* Mode Section */}
+      {isTauriRuntime() && (
+        <div className="mb-8">
+          <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.modeTitle')}</h2>
+          <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.modeDescription')}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                if (appMode.mode === 'default') return
+                setPendingMode('default')
+                setModeSwitchConfirmOpen(true)
+              }}
+              aria-pressed={appMode.mode === 'default'}
+              className={`flex-1 py-3 text-sm font-semibold rounded-lg border transition-all ${
+                appMode.mode === 'default'
+                  ? 'bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] border-transparent shadow-[var(--shadow-button-primary)]'
+                  : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-1">
+                <span className="material-symbols-outlined text-[22px]">settings_applications</span>
+                <span>{t('settings.general.modeDefault')}</span>
+              </div>
+            </button>
+            <button
+              onClick={() => {
+                if (appMode.mode === 'portable') return
+                setPendingMode('portable')
+                setModeSwitchConfirmOpen(true)
+              }}
+              aria-pressed={appMode.mode === 'portable'}
+              className={`flex-1 py-3 text-sm font-semibold rounded-lg border transition-all ${
+                appMode.mode === 'portable'
+                  ? 'bg-[image:var(--gradient-btn-primary)] text-[var(--color-btn-primary-fg)] border-transparent shadow-[var(--shadow-button-primary)]'
+                  : 'border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-1">
+                <span className="material-symbols-outlined text-[22px]">drive_file_move</span>
+                <span>{t('settings.general.modePortable')}</span>
+              </div>
+            </button>
+          </div>
+          {appMode.mode === 'portable' && appMode.portableDir && (
+            <div className="mt-2 text-xs text-[var(--color-text-tertiary)] font-mono break-all">
+              {t('settings.general.modePortableDir')}: {appMode.portableDir}
+            </div>
+          )}
+          {appMode.mode === 'default' && (
+            <div className="mt-2 text-xs text-[var(--color-text-tertiary)]">
+              {t('settings.general.modeDefaultHint')}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Restart Required Banner */}
+      {appModeRequiresRestart && (
+        <div className="mb-6 rounded-xl border border-[var(--color-warning)] bg-[var(--color-warning)]/10 px-4 py-3 flex items-center gap-3">
+          <span className="material-symbols-outlined text-[20px] text-[var(--color-warning)]" style={{ fontVariationSettings: "'FILL' 1" }}>
+            warning
+          </span>
+          <div>
+            <div className="text-sm font-medium text-[var(--color-text-primary)]">
+              {t('settings.general.modeRestartTitle')}
+            </div>
+            <div className="text-xs text-[var(--color-text-tertiary)] mt-0.5">
+              {t('settings.general.modeRestartHint')}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Appearance selector */}
       <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.appearanceTitle')}</h2>
       <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.appearanceDescription')}</p>
@@ -1776,6 +1860,22 @@ function GeneralSettings() {
         </div>
       </div>
 
+      {/* Confirm dialog for mode switch */}
+      <ConfirmDialog
+        open={modeSwitchConfirmOpen}
+        onClose={() => { setModeSwitchConfirmOpen(false); setPendingMode(null); }}
+        onConfirm={() => {
+          if (pendingMode) { void setAppModeAction(pendingMode); }
+          setModeSwitchConfirmOpen(false);
+          setPendingMode(null);
+        }}
+        title={t('settings.general.modeSwitchTitle')}
+        body={t('settings.general.modeSwitchBody', {
+          mode: pendingMode === 'portable' ? t('settings.general.modePortable') : t('settings.general.modeDefault'),
+        })}
+        confirmLabel={t('settings.general.modeSwitchConfirm')}
+        cancelLabel={t('common.cancel')}
+      />
     </div>
   )
 }
