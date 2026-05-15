@@ -21,6 +21,11 @@ import {
 } from '../../utils/secureStorage/macOsKeychainHelpers.js'
 import type { OpenAIOAuthTokens } from '../../services/openaiAuth/types.js'
 import { getModelOptions } from '../../utils/model/modelOptions.js'
+import {
+  getSettingsForSource,
+  updateSettingsForSource,
+} from '../../utils/settings/settings.js'
+import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
 
 // ─── Test helpers ─────────────────────────────────────────────────────────────
 
@@ -40,6 +45,7 @@ let originalAnthropicDefaultOpusModel: string | undefined
 
 async function setup() {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-test-'))
+  resetSettingsCache()
   originalConfigDir = process.env.CLAUDE_CONFIG_DIR
   originalHome = process.env.HOME
   originalUserProfile = process.env.USERPROFILE
@@ -72,6 +78,7 @@ async function teardown() {
   plainTextStorage.delete()
   clearKeychainCache()
   clearOpenAIOAuthTokenCache()
+  resetSettingsCache()
 
   if (originalConfigDir !== undefined) {
     process.env.CLAUDE_CONFIG_DIR = originalConfigDir
@@ -220,6 +227,37 @@ describe('SettingsService', () => {
     const settings = await svc.getUserSettings()
     expect(settings.theme).toBe('dark')
     expect(settings.model).toBe('claude-haiku-4-5')
+  })
+
+  it('should not let cached CLI settings overwrite desktop settings updates', async () => {
+    const svc = new SettingsService()
+    await svc.updateUserSettings({
+      enabledPlugins: {
+        'demo@test-market': false,
+      },
+    })
+
+    expect(getSettingsForSource('userSettings')?.enabledPlugins?.['demo@test-market']).toBe(false)
+
+    await svc.updateUserSettings({
+      language: 'chinese',
+      desktopNotificationsEnabled: true,
+      alwaysThinkingEnabled: false,
+    })
+
+    const { error } = updateSettingsForSource('userSettings', {
+      enabledPlugins: {
+        ...getSettingsForSource('userSettings')?.enabledPlugins,
+        'demo@test-market': true,
+      },
+    })
+    expect(error).toBeNull()
+
+    const settings = await svc.getUserSettings()
+    expect(settings.language).toBe('chinese')
+    expect(settings.desktopNotificationsEnabled).toBe(true)
+    expect(settings.alwaysThinkingEnabled).toBe(false)
+    expect((settings.enabledPlugins as Record<string, unknown>)['demo@test-market']).toBe(true)
   })
 
   it('should read and write project settings', async () => {
