@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { translateCliMessage } from '../ws/handler.js'
+import {
+  createCurrentTurnLocalCommandForwarder,
+  translateCliMessage,
+} from '../ws/handler.js'
+import { parseSlashCommand } from '../../utils/slashCommandParsing.js'
 
 describe('WebSocket memory events', () => {
   it('forwards CLI memory_saved system messages to the desktop client', () => {
@@ -207,6 +211,37 @@ describe('WebSocket goal command events', () => {
       { type: 'content_start', blockType: 'text' },
       { type: 'content_delta', text: 'Goal: active' },
     ])
+  })
+
+  it('allows the current slash command lifecycle through the pre-turn mute gate', () => {
+    const shouldForward = createCurrentTurnLocalCommandForwarder(
+      parseSlashCommand('/goal ship the smoke test'),
+    )
+
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'init',
+    })).toBe(false)
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'local_command',
+      content: '<command-name>/cost</command-name>\n<command-args></command-args>',
+    })).toBe(false)
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'local_command',
+      content: '<command-name>/goal</command-name>\n<command-args>ship the smoke test</command-args>',
+    })).toBe(true)
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'local_command',
+      content: '<local-command-stdout>Goal created.\nGoal: active\nObjective: ship the smoke test</local-command-stdout>',
+    })).toBe(true)
+    expect(shouldForward({
+      type: 'system',
+      subtype: 'local_command_output',
+      content: 'late unrelated output',
+    })).toBe(false)
   })
 })
 

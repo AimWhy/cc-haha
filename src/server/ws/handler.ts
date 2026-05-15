@@ -333,9 +333,16 @@ async function handleUserMessage(
   // Keep output muted until the current user turn is enqueued to avoid forwarding
   // any pre-turn SDK chatter as fresh chat history.
   let userMessageSent = false
+  const shouldForwardCurrentTurnLocalCommand =
+    createCurrentTurnLocalCommandForwarder(desktopSlashCommand)
 
   rebindSessionOutput(sessionId, ws, {
-    shouldForward: (cliMsg) => userMessageSent || (cliMsg.type === 'result' && cliMsg.is_error),
+    shouldForward: (cliMsg) => {
+      if (userMessageSent || (cliMsg.type === 'result' && cliMsg.is_error)) {
+        return true
+      }
+      return shouldForwardCurrentTurnLocalCommand(cliMsg)
+    },
   })
 
   const sent = conversationService.sendMessage(
@@ -1322,6 +1329,56 @@ function getDesktopSlashCommand(content: string): ReturnType<typeof parseSlashCo
   const parsed = parseSlashCommand(content.trim())
   if (!parsed || parsed.isMcp) return null
   return parsed
+}
+
+export function createCurrentTurnLocalCommandForwarder(
+  command: ReturnType<typeof parseSlashCommand>,
+): (cliMsg: any) => boolean {
+  let awaitingCurrentTurnLocalCommandOutput = false
+
+  return (cliMsg: any) => {
+    if (command && isMatchingCurrentTurnLocalCommand(cliMsg, command)) {
+      awaitingCurrentTurnLocalCommandOutput = true
+      return true
+    }
+    if (
+      awaitingCurrentTurnLocalCommandOutput &&
+      isLocalCommandOutputMessage(cliMsg)
+    ) {
+      awaitingCurrentTurnLocalCommandOutput = false
+      return true
+    }
+    return false
+  }
+}
+
+function isMatchingCurrentTurnLocalCommand(
+  cliMsg: any,
+  command: NonNullable<ReturnType<typeof parseSlashCommand>>,
+): boolean {
+  if (cliMsg?.type !== 'system' || cliMsg?.subtype !== 'local_command') {
+    return false
+  }
+  const localCommand = extractLocalCommand(cliMsg.content ?? cliMsg.message)
+  if (!localCommand) return false
+  return (
+    localCommand.name === command.commandName &&
+    localCommand.args.trim() === command.args.trim()
+  )
+}
+
+function isLocalCommandOutputMessage(cliMsg: any): boolean {
+  if (
+    cliMsg?.type !== 'system' ||
+    (cliMsg?.subtype !== 'local_command' &&
+      cliMsg?.subtype !== 'local_command_output')
+  ) {
+    return false
+  }
+  return extractLocalCommandOutput(
+    cliMsg.content ?? cliMsg.message,
+    { allowUntagged: cliMsg.subtype === 'local_command_output' },
+  ) !== null
 }
 
 function extractLocalCommandOutput(
