@@ -445,6 +445,12 @@ describe('chatStore history mapping', () => {
           summary: 'Agent completed',
         },
       },
+      {
+        id: 'goal-complete',
+        type: 'goal_event',
+        action: 'completed',
+        message: 'Goal marked complete.',
+      },
     ])
     expect(session?.activeGoal).toMatchObject({
       action: 'completed',
@@ -1943,6 +1949,22 @@ describe('chatStore history mapping', () => {
 
     vi.runOnlyPendingTimers()
     vi.useRealTimers()
+  })
+
+  it('marks the tab idle when a message completes', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({ chatState: 'thinking' }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'message_complete',
+      usage: { input_tokens: 1, output_tokens: 2 },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.chatState).toBe('idle')
+    expect(updateTabStatusMock).toHaveBeenCalledWith(TEST_SESSION_ID, 'idle')
   })
 
   it('flushes pending text before appending a thinking block', () => {

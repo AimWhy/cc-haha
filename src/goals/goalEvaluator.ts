@@ -78,6 +78,25 @@ export async function evaluateThreadGoalAfterTurn(input: {
     return { action: 'budget_limited', goal: limited }
   }
 
+  const taskState = summarizeTaskState([
+    ...input.messages,
+    ...input.assistantMessages,
+  ])
+  if (taskState.incomplete.length > 0) {
+    const reason = formatIncompleteTaskReason(taskState.incomplete)
+    const continued =
+      incrementThreadGoalContinuation(input.threadId, {
+        reason,
+        now,
+      }) ?? accounted
+    return {
+      action: 'continue',
+      goal: continued,
+      reason,
+      prompt: buildGoalContinuationPrompt(continued, reason),
+    }
+  }
+
   const transcript = formatTranscript([
     ...input.messages,
     ...input.assistantMessages,
@@ -257,6 +276,88 @@ function assistantVisibleText(content: readonly BetaContentBlock[]): string {
     .filter(block => block.type === 'text')
     .map(block => block.text)
     .join('\n')
+}
+
+type TaskSummary = {
+  id: string
+  subject: string | null
+  status: string
+}
+
+function summarizeTaskState(messages: Message[]): { incomplete: TaskSummary[] } {
+  const tasks = new Map<string, TaskSummary>()
+
+  for (const message of messages) {
+    if (message.type === 'assistant') {
+      for (const block of message.message.content) {
+        if (block.type !== 'tool_use') continue
+        if (block.name !== 'TaskUpdate') continue
+        const input = block.input
+        if (!input || typeof input !== 'object') continue
+        const taskId = (input as { taskId?: unknown }).taskId
+        const status = (input as { status?: unknown }).status
+        if (typeof taskId !== 'string' || typeof status !== 'string') continue
+        const existing = tasks.get(taskId)
+        tasks.set(taskId, {
+          id: taskId,
+          subject: existing?.subject ?? null,
+          status,
+        })
+      }
+      continue
+    }
+
+    if (message.type !== 'user') continue
+    const content = message.message.content
+    if (!Array.isArray(content)) continue
+    for (const block of content) {
+      if (block.type !== 'tool_result') continue
+      const text = toolResultText(block.content)
+      const created = text.match(/Task #(\S+) created successfully:\s*(.+)/)
+      if (!created) continue
+      const [, id, subject] = created
+      const existing = tasks.get(id)
+      tasks.set(id, {
+        id,
+        subject: subject.trim(),
+        status: existing?.status ?? 'pending',
+      })
+    }
+  }
+
+  return {
+    incomplete: [...tasks.values()].filter(task =>
+      task.status === 'pending' || task.status === 'in_progress',
+    ),
+  }
+}
+
+function toolResultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map(item =>
+      item &&
+      typeof item === 'object' &&
+      'text' in item &&
+      typeof item.text === 'string'
+        ? item.text
+        : '',
+    )
+    .filter(Boolean)
+    .join('\n')
+}
+
+function formatIncompleteTaskReason(tasks: TaskSummary[]): string {
+  const taskList = tasks
+    .slice(0, 3)
+    .map(task => {
+      const label = task.subject ? `Task #${task.id} (${task.subject})` : `Task #${task.id}`
+      return `${label} is ${task.status}`
+    })
+    .join('; ')
+  const suffix = tasks.length > 3 ? `; ${tasks.length - 3} more task(s) are incomplete` : ''
+  return `The task list is not complete yet: ${taskList}${suffix}.`
 }
 
 function getMaxContinuations(): number {

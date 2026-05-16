@@ -134,6 +134,61 @@ describe('goalEvaluator', () => {
     )
   })
 
+  test('continues an active goal before evaluating when tasks are still incomplete', async () => {
+    setThreadGoal('thread-eval-open-task', {
+      objective: 'finish all task-list work',
+      now: 1_000,
+    })
+    let evaluatorCalled = false
+
+    const decision = await evaluateThreadGoalAfterTurn({
+      threadId: 'thread-eval-open-task',
+      messages: [
+        createUserMessage({
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'task-create-3',
+              content: 'Task #3 created successfully: Perform code review',
+            } as unknown as BetaContentBlock,
+          ],
+        }),
+        createAssistantMessage({
+          content: [
+            {
+              type: 'tool_use',
+              id: 'task-update-3',
+              name: 'TaskUpdate',
+              input: { taskId: '3', status: 'in_progress' },
+            } as unknown as BetaContentBlock,
+          ],
+        }),
+      ],
+      assistantMessages: [
+        createAssistantMessage({
+          content: [{ type: 'text', text: 'The implementation is complete.' }],
+        }),
+      ],
+      signal: new AbortController().signal,
+      now: 3_000,
+      evaluate: async () => {
+        evaluatorCalled = true
+        return {
+          complete: true,
+          reason: 'The final answer claims the work is done.',
+        }
+      },
+    })
+
+    expect(decision.action).toBe('continue')
+    expect(evaluatorCalled).toBe(false)
+    if (decision.action === 'continue') {
+      expect(decision.reason).toContain('Task #3 (Perform code review) is in_progress')
+      expect(decision.prompt).toContain('The task list is not complete yet')
+    }
+    expect(getThreadGoal('thread-eval-open-task')?.status).toBe('active')
+  })
+
   test('hydrates an active goal from persisted slash command history before continuing', async () => {
     const threadId = 'thread-eval-hydrate'
 

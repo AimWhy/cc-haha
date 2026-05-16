@@ -254,6 +254,27 @@ function mergeBackgroundTaskMessages(
   return [...merged].sort((a, b) => a.timestamp - b.timestamp)
 }
 
+function mergeRestoredTerminalGoalEvents(
+  messages: UIMessage[],
+  restoredMessages: UIMessage[],
+): UIMessage[] {
+  const existingKeys = new Set(messages
+    .filter((message): message is Extract<UIMessage, { type: 'goal_event' }> =>
+      message.type === 'goal_event')
+    .map((message) => `${message.action}:${message.message ?? ''}:${message.objective ?? ''}`))
+
+  const missingTerminalEvents = restoredMessages.filter((
+    message,
+  ): message is Extract<UIMessage, { type: 'goal_event' }> =>
+    message.type === 'goal_event' &&
+    (message.action === 'completed' || message.action === 'cleared') &&
+    !existingKeys.has(`${message.action}:${message.message ?? ''}:${message.objective ?? ''}`))
+
+  return missingTerminalEvents.length > 0
+    ? [...messages, ...missingTerminalEvents]
+    : messages
+}
+
 function normalizeMemoryEventFiles(data: unknown): MemoryEventFile[] {
   if (!data || typeof data !== 'object') return []
   const writtenPaths = (data as { writtenPaths?: unknown }).writtenPaths
@@ -592,7 +613,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
               s.backgroundAgentTasks ?? {},
               restoredBackgroundTasks,
             ),
-            messages: mergeBackgroundTaskMessages(s.messages, restoredBackgroundTasks),
+            messages: mergeRestoredTerminalGoalEvents(
+              mergeBackgroundTaskMessages(s.messages, restoredBackgroundTasks),
+              uiMessages,
+            ),
           })) }
         }
         return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
@@ -908,6 +932,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           pendingComputerUsePermission: null,
           elapsedTimer: null,
         }))
+        useTabStore.getState().updateTabStatus(sessionId, 'idle')
         const notification = wasAgentRunning
           ? buildAgentCompletionNotification(sessionId, completionMessages, text)
           : null
