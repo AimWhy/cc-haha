@@ -1074,6 +1074,14 @@ fn open_windows_notification_settings() -> Result<bool, String> {
     open_windows_notification_settings_impl()
 }
 
+#[tauri::command]
+fn set_app_zoom(window: tauri::WebviewWindow, zoom_factor: f64) -> Result<(), String> {
+    let clamped = zoom_factor.clamp(0.5, 2.0);
+    window
+        .set_zoom(clamped)
+        .map_err(|err| format!("set app zoom: {err}"))
+}
+
 #[cfg(target_os = "windows")]
 fn open_windows_notification_settings_impl() -> Result<bool, String> {
     StdCommand::new("explorer.exe")
@@ -1893,6 +1901,7 @@ pub fn run() {
             get_app_mode,
             set_app_mode,
             detect_portable_dir,
+            set_app_zoom
         ]);
 
     // macOS: native menu bar (traffic-light overlay style)
