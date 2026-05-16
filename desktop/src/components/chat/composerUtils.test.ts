@@ -75,8 +75,8 @@ describe('composerUtils', () => {
       expect.arrayContaining([
         {
           name: 'goal',
-          description: 'Create or manage an autonomous completion goal',
-          argumentHint: '[status|pause|resume|complete|clear|--tokens <budget>|<objective>]',
+          description: 'Set a completion goal',
+          argumentHint: '[<condition> | clear]',
         },
       ]),
     )
@@ -89,8 +89,8 @@ describe('composerUtils', () => {
       commands.map((command) => command.name),
     ).toEqual(['goal'])
     expect(commands[0]).toMatchObject({
-      description: 'Create or manage an autonomous completion goal',
-      argumentHint: '[status|pause|resume|complete|clear|--tokens <budget>|<objective>]',
+      description: 'Set a completion goal',
+      argumentHint: '[<condition> | clear]',
     })
     expect(mergeSlashCommands([]).map((command) => command.name)).not.toContain('goal status')
     expect(mergeSlashCommands([]).map((command) => command.name)).not.toContain('goal --tokens')

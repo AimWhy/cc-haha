@@ -169,8 +169,8 @@ describe('Content-only pages render without errors', () => {
     })
 
     expect(await screen.findAllByText('/goal')).toHaveLength(2)
-    expect(screen.getByText('[status|pause|resume|complete|clear|--tokens <budget>|<objective>]')).toBeInTheDocument()
-    expect(screen.getByText('Create or manage an autonomous completion goal')).toBeInTheDocument()
+    expect(screen.getByText('[<condition> | clear]')).toBeInTheDocument()
+    expect(screen.getByText('Set a completion goal')).toBeInTheDocument()
     expect(screen.queryByText('/goal status')).not.toBeInTheDocument()
     expect(screen.queryByText('/goal --tokens')).not.toBeInTheDocument()
   })

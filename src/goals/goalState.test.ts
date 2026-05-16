@@ -23,6 +23,11 @@ describe('goalState', () => {
     })
     expect(parseGoalCommand('clear')).toEqual({ type: 'clear' })
     expect(() => parseGoalCommand('')).toThrow('Usage: /goal <condition> | clear')
+    expect(() => parseGoalCommand('status')).toThrow('Usage: /goal <condition> | clear')
+    expect(() => parseGoalCommand('pause')).toThrow('Usage: /goal <condition> | clear')
+    expect(() => parseGoalCommand('resume')).toThrow('Usage: /goal <condition> | clear')
+    expect(() => parseGoalCommand('complete')).toThrow('Usage: /goal <condition> | clear')
+    expect(() => parseGoalCommand('--tokens 100 ship it')).toThrow('Usage: /goal <condition> | clear')
   })
 
   test('stores and formats the current thread goal', () => {

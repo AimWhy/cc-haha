@@ -25,11 +25,15 @@ export type ParsedGoalCommand =
   | { type: 'set'; objective: string }
 
 const goalsByThread = new Map<string, ThreadGoal>()
+const RESERVED_GOAL_ARGS = new Set(['status', 'pause', 'resume', 'complete'])
 
 export function parseGoalCommand(args: string): ParsedGoalCommand {
   const trimmed = args.trim()
   if (!trimmed) throw new Error('Usage: /goal <condition> | clear')
   if (trimmed === 'clear') return { type: 'clear' }
+  if (RESERVED_GOAL_ARGS.has(trimmed) || trimmed.startsWith('--tokens')) {
+    throw new Error('Usage: /goal <condition> | clear')
+  }
   return { type: 'set', objective: trimmed }
 }
 

@@ -79,6 +79,20 @@ describe('/goal command', () => {
     expect(result.options?.shouldQuery).toBeUndefined()
   })
 
+  test('does not treat removed subcommands as replacement goals', async () => {
+    switchSession(`goal-command-${crypto.randomUUID()}` as SessionId)
+
+    const created = await runGoal('ship the smoke test')
+    expect(created.result).toBe('Goal set: ship the smoke test')
+
+    const status = await runGoal('status')
+    expect(status.result).toBe('Usage: /goal <condition> | clear')
+    expect(status.options?.shouldQuery).toBeUndefined()
+
+    const cleared = await runGoal('clear')
+    expect(cleared.result).toBe('Goal cleared: ship the smoke test')
+  })
+
   test('hydrates completed goal state from persisted slash command history', async () => {
     switchSession(`goal-command-${crypto.randomUUID()}` as SessionId)
 
