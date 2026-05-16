@@ -1,6 +1,8 @@
 import { useMemo, useCallback } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import DOMPurify from 'dompurify'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import { marked, type Tokens } from 'marked'
 import { CodeViewer } from '../chat/CodeViewer'
 import { MermaidRenderer } from '../chat/MermaidRenderer'
@@ -19,9 +21,16 @@ type CodeBlock = {
   language: string | undefined
 }
 
+type MathBlock = {
+  id: string
+  tex: string
+  displayMode: boolean
+}
+
 const MERMAID_LANGUAGE = 'mermaid'
 const PLAINTEXT_LANGUAGES = new Set(['', 'text', 'plaintext', 'plain'])
 const MERMAID_DIAGRAM_START = /^(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram(?:-v2)?|erDiagram|journey|gantt|pie|gitGraph|mindmap|timeline|requirementDiagram|quadrantChart|xychart-beta|sankey-beta|block-beta|packet-beta|architecture|kanban)\b/i
+const CODE_FENCE_START = /^ {0,3}(`{3,}|~{3,})/
 
 function normalizeCodeLanguage(language: string | undefined): string | undefined {
   const normalized = language?.trim().split(/\s+/)[0]?.toLowerCase()
@@ -71,7 +80,160 @@ marked.setOptions({
 })
 marked.use({ renderer })
 
-function enhanceMarkdownHtml(html: string): string {
+function findUnescapedDelimiter(text: string, delimiter: string, fromIndex: number): number {
+  let index = text.indexOf(delimiter, fromIndex)
+  while (index !== -1) {
+    let backslashCount = 0
+    for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) {
+      backslashCount += 1
+    }
+    if (backslashCount % 2 === 0) return index
+    index = text.indexOf(delimiter, index + delimiter.length)
+  }
+  return -1
+}
+
+function consumeMath(
+  content: string,
+  mathBlocks: MathBlock[],
+  start: number,
+  open: string,
+  close: string,
+  displayMode: boolean,
+): { replacement: string; end: number } | null {
+  const contentStart = start + open.length
+  const end = findUnescapedDelimiter(content, close, contentStart)
+  if (end === -1) return null
+
+  const tex = content.slice(contentStart, end)
+  if (!tex.trim()) return null
+  if (!displayMode && /[\n\r]/.test(tex)) return null
+  if (open === '$' && (/\s/.test(content[contentStart] ?? '') || /\s/.test(content[end - 1] ?? ''))) {
+    return null
+  }
+
+  const id = `math-${mathBlocks.length}`
+  mathBlocks.push({ id, tex, displayMode })
+  const tag = displayMode ? 'div' : 'span'
+  const spacing = displayMode ? '\n\n' : ''
+  return {
+    replacement: `${spacing}<${tag} data-math-id="${id}"></${tag}>${spacing}`,
+    end: end + close.length,
+  }
+}
+
+function extractMathFromSegment(segment: string, mathBlocks: MathBlock[]): string {
+  let output = ''
+  let index = 0
+
+  while (index < segment.length) {
+    if (segment[index] === '`') {
+      const match = /^`+/.exec(segment.slice(index))
+      const ticks = match?.[0] ?? '`'
+      const end = segment.indexOf(ticks, index + ticks.length)
+      if (end !== -1) {
+        output += segment.slice(index, end + ticks.length)
+        index = end + ticks.length
+        continue
+      }
+    }
+
+    const displayDollar = segment.startsWith('$$', index)
+      ? consumeMath(segment, mathBlocks, index, '$$', '$$', true)
+      : null
+    if (displayDollar) {
+      output += displayDollar.replacement
+      index = displayDollar.end
+      continue
+    }
+
+    const displayBracket = segment.startsWith('\\[', index)
+      ? consumeMath(segment, mathBlocks, index, '\\[', '\\]', true)
+      : null
+    if (displayBracket) {
+      output += displayBracket.replacement
+      index = displayBracket.end
+      continue
+    }
+
+    const inlineParen = segment.startsWith('\\(', index)
+      ? consumeMath(segment, mathBlocks, index, '\\(', '\\)', false)
+      : null
+    if (inlineParen) {
+      output += inlineParen.replacement
+      index = inlineParen.end
+      continue
+    }
+
+    const inlineDollar = segment[index] === '$' && segment[index + 1] !== '$'
+      ? consumeMath(segment, mathBlocks, index, '$', '$', false)
+      : null
+    if (inlineDollar) {
+      output += inlineDollar.replacement
+      index = inlineDollar.end
+      continue
+    }
+
+    output += segment[index]
+    index += 1
+  }
+
+  return output
+}
+
+function extractMath(content: string): { markdown: string; mathBlocks: MathBlock[] } {
+  const mathBlocks: MathBlock[] = []
+  const lines = content.match(/[^\n]*\n|[^\n]+/g) ?? ['']
+  let output = ''
+  let pendingMarkdown = ''
+  let inFence: string | null = null
+
+  const flushPendingMarkdown = () => {
+    if (!pendingMarkdown) return
+    output += extractMathFromSegment(pendingMarkdown, mathBlocks)
+    pendingMarkdown = ''
+  }
+
+  for (const line of lines) {
+    const fenceMatch = CODE_FENCE_START.exec(line)
+    if (fenceMatch) {
+      const marker = fenceMatch[1]!.charAt(0)
+      if (!inFence) {
+        flushPendingMarkdown()
+        inFence = marker
+      } else if (inFence === marker) {
+        inFence = null
+      }
+      output += line
+      continue
+    }
+
+    if (inFence) {
+      output += line
+    } else {
+      pendingMarkdown += line
+    }
+  }
+
+  flushPendingMarkdown()
+
+  return { markdown: output, mathBlocks }
+}
+
+function renderMath(block: MathBlock): string {
+  try {
+    return katex.renderToString(block.tex, {
+      displayMode: block.displayMode,
+      throwOnError: false,
+      strict: false,
+      trust: false,
+    })
+  } catch {
+    return DOMPurify.sanitize(block.tex)
+  }
+}
+
+function enhanceMarkdownHtml(html: string, mathBlocks: MathBlock[]): string {
   const cleanHtml = DOMPurify.sanitize(html, {
     ADD_TAGS: ['use'],
     ADD_ATTR: ['xlink:href'],
@@ -83,6 +245,17 @@ function enhanceMarkdownHtml(html: string): string {
 
   const container = document.createElement('div')
   container.innerHTML = cleanHtml
+  const mathById = new Map(mathBlocks.map((block) => [block.id, block]))
+
+  container.querySelectorAll<HTMLElement>('[data-math-id]').forEach((placeholder) => {
+    const block = mathById.get(placeholder.dataset.mathId ?? '')
+    if (!block) return
+
+    const rendered = document.createElement(block.displayMode ? 'div' : 'span')
+    rendered.className = block.displayMode ? 'md-math-display' : 'md-math-inline'
+    rendered.innerHTML = renderMath(block)
+    placeholder.replaceWith(rendered)
+  })
 
   container.querySelectorAll('table').forEach((table) => {
     if (table.parentElement?.classList.contains('md-table-wrap')) return
@@ -100,12 +273,13 @@ function enhanceMarkdownHtml(html: string): string {
   return container.innerHTML
 }
 
-function parseMarkdown(content: string): { html: string; codeBlocks: CodeBlock[] } {
+function parseMarkdown(content: string): { html: string; codeBlocks: CodeBlock[]; mathBlocks: MathBlock[] } {
   pendingCodeBlocks = []
-  const html = marked.parse(content) as string
+  const { markdown, mathBlocks } = extractMath(content)
+  const html = marked.parse(markdown) as string
   const codeBlocks = [...pendingCodeBlocks]
   pendingCodeBlocks = []
-  return { html, codeBlocks }
+  return { html, codeBlocks, mathBlocks }
 }
 
 const BASE_PROSE_CLASSES = `markdown-prose prose prose-sm min-w-0 max-w-none break-words [overflow-wrap:anywhere] text-[var(--color-text-primary)]
@@ -121,6 +295,10 @@ const BASE_PROSE_CLASSES = `markdown-prose prose prose-sm min-w-0 max-w-none bre
   prose-table:my-0 prose-table:w-full prose-table:table-auto prose-table:text-sm
   prose-th:bg-[var(--color-surface-info)] prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:whitespace-normal prose-th:break-words prose-th:align-top prose-th:border-b prose-th:border-[var(--color-border)]
   prose-td:px-3 prose-td:py-2 prose-td:border-b prose-td:border-[var(--color-border)] prose-td:whitespace-normal prose-td:break-words prose-td:align-top prose-td:bg-[var(--color-surface)]
+  [&_.katex]:[white-space:nowrap] [&_.katex]:[overflow-wrap:normal] [&_.katex]:[word-break:normal]
+  [&_.md-math-inline]:inline-flex [&_.md-math-inline]:max-w-full [&_.md-math-inline]:overflow-x-auto [&_.md-math-inline]:[vertical-align:-0.08em] [&_.md-math-inline_.katex]:text-[1.02em]
+  [&_.md-math-display]:my-5 [&_.md-math-display]:flex [&_.md-math-display]:max-w-full [&_.md-math-display]:justify-center [&_.md-math-display]:overflow-x-auto [&_.md-math-display]:px-1 [&_.md-math-display]:py-2 [&_.md-math-display]:[scrollbar-width:thin]
+  [&_.md-math-display_.katex-display]:m-0 [&_.md-math-display_.katex]:text-[1.14em] [&_.md-math-display_.katex-html]:min-w-max
   [&_.md-table-wrap]:my-5 [&_.md-table-wrap]:overflow-x-auto [&_.md-table-wrap]:rounded-xl [&_.md-table-wrap]:border [&_.md-table-wrap]:border-[var(--color-border)] [&_.md-table-wrap]:bg-[var(--color-surface-container-lowest)]`
 
 const DOCUMENT_PROSE_CLASSES = `
@@ -137,7 +315,8 @@ const DOCUMENT_PROSE_CLASSES = `
   prose-ul:pl-5 prose-ul:[&>li]:marker:text-[var(--color-text-tertiary)]
   prose-ol:pl-5 prose-ol:[&>li]:marker:text-[var(--color-text-tertiary)]
   prose-li:my-1.5
-  prose-table:my-0`
+  prose-table:my-0
+  [&_.md-math-display]:my-6 [&_.md-math-display_.katex]:text-[1.18em]`
 
 const COMPACT_PROSE_CLASSES = `
   prose-p:my-1 prose-p:text-xs prose-p:leading-5 prose-p:text-[var(--color-text-secondary)]
@@ -148,6 +327,7 @@ const COMPACT_PROSE_CLASSES = `
   prose-ul:my-1 prose-ol:my-1 prose-ul:pl-4 prose-ol:pl-4
   prose-li:my-0.5 prose-li:text-xs prose-li:leading-5 prose-li:text-[var(--color-text-secondary)]
   prose-table:text-xs
+  [&_.md-math-display]:my-2 [&_.md-math-display]:py-1 [&_.md-math-display_.katex]:text-[1.04em]
   [&_.md-table-wrap]:my-2`
 
 function getProseClasses(variant: 'default' | 'document' | 'compact', className?: string) {
@@ -162,7 +342,7 @@ function getProseClasses(variant: 'default' | 'document' | 'compact', className?
 }
 
 export function MarkdownRenderer({ content, variant = 'default', className, onLinkClick }: Props) {
-  const { html, codeBlocks } = useMemo(() => parseMarkdown(content), [content])
+  const { html, codeBlocks, mathBlocks } = useMemo(() => parseMarkdown(content), [content])
   const proseClasses = useMemo(
     () => getProseClasses(variant, className),
     [variant, className],
@@ -225,7 +405,7 @@ export function MarkdownRenderer({ content, variant = 'default', className, onLi
   }, [onLinkClick])
 
   if (codeBlocks.length === 0) {
-    const cleanHtml = enhanceMarkdownHtml(html)
+    const cleanHtml = enhanceMarkdownHtml(html, mathBlocks)
     return (
       <div
         className={proseClasses}
@@ -239,7 +419,7 @@ export function MarkdownRenderer({ content, variant = 'default', className, onLi
     <div className={proseClasses} onClick={handleClick}>
       {parts.map((part, i) =>
         part.type === 'html' ? (
-          <div key={i} dangerouslySetInnerHTML={{ __html: enhanceMarkdownHtml(part.content) }} />
+          <div key={i} dangerouslySetInnerHTML={{ __html: enhanceMarkdownHtml(part.content, mathBlocks) }} />
         ) : shouldRenderAsMermaid(part.block) ? (
           <MermaidRenderer key={part.block.id} code={part.block.code} />
         ) : (
