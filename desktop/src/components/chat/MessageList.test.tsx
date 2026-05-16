@@ -251,6 +251,36 @@ describe('MessageList nested tool calls', () => {
     expect(card.textContent).toContain('45s')
   })
 
+  it('renders stopped background agents as neutral transcript events', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [{
+            id: 'background-task-agent-stopped',
+            type: 'background_task',
+            timestamp: 2,
+            task: {
+              taskId: 'agent-task-stopped',
+              toolUseId: 'agent-tool-stopped',
+              status: 'stopped',
+              taskType: 'local_agent',
+              summary: 'Agent "Code review for todo app" was stopped',
+              startedAt: 1,
+              updatedAt: 2,
+            },
+          }],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const card = screen.getByTestId('background-task-event-card')
+    expect(card.getAttribute('data-status')).toBe('stopped')
+    expect(card.textContent).toContain('stopped')
+    expect(card.querySelector('.text-\\[var\\(--color-error\\)\\]')).toBeNull()
+  })
+
   it('restores the full transcript when scrolling away from latest', async () => {
     useChatStore.setState({
       sessions: {

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useMemo, memo, useState, useCallback, useLayoutEffect, type ReactNode } from 'react'
-import { ArrowDown, BookMarked, Bot, CheckCircle2, ChevronDown, ChevronRight, LoaderCircle, Settings, Target, XCircle } from 'lucide-react'
+import { ArrowDown, BookMarked, Bot, CheckCircle2, ChevronDown, ChevronRight, CircleStop, LoaderCircle, Settings, Target, XCircle } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import { sessionsApi, type SessionTurnCheckpoint } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
@@ -233,7 +233,8 @@ function BackgroundTaskEventCard({ message }: { message: BackgroundTaskEvent }) 
   const t = useTranslation()
   const { task } = message
   const isRunning = task.status === 'running'
-  const isFailed = task.status === 'failed' || task.status === 'stopped'
+  const isFailed = task.status === 'failed'
+  const isStopped = task.status === 'stopped'
   const duration = formatBackgroundTaskDuration(task.usage?.durationMs)
   const detail = task.summary || task.lastToolName || task.description || task.outputFile || task.taskId
 
@@ -241,6 +242,7 @@ function BackgroundTaskEventCard({ message }: { message: BackgroundTaskEvent }) 
     <div className="mb-2">
       <div
         data-testid="background-task-event-card"
+        data-status={task.status}
         className="flex min-w-0 items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2"
       >
         <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
@@ -248,6 +250,8 @@ function BackgroundTaskEventCard({ message }: { message: BackgroundTaskEvent }) 
             <LoaderCircle size={15} strokeWidth={2.25} className="animate-spin text-[var(--color-accent)]" aria-hidden="true" />
           ) : isFailed ? (
             <XCircle size={15} strokeWidth={2.25} className="text-[var(--color-error)]" aria-hidden="true" />
+          ) : isStopped ? (
+            <CircleStop size={15} strokeWidth={2.25} className="text-[var(--color-text-tertiary)]" aria-hidden="true" />
           ) : (
             <CheckCircle2 size={15} strokeWidth={2.25} className="text-[var(--color-success)]" aria-hidden="true" />
           )}
