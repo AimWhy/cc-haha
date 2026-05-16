@@ -187,6 +187,12 @@ export const en = {
   'settings.terminal.status.exited': 'Exited',
   'settings.terminal.status.error': 'Error',
   'settings.terminal.status.unavailable': 'Unavailable',
+  'settings.terminal.bashPathLabel': 'Bash Path',
+  'settings.terminal.bashPathDescription': 'Windows defaults to CMD as the terminal shell. If tool calls use Unix commands (grep, sed, etc.), configure the path to a Bash executable here (e.g., Git Bash).',
+  'settings.terminal.bashPathSave': 'Save',
+  'settings.terminal.bashPathReset': 'Reset to default',
+  'settings.terminal.bashPathSaved': 'Saved',
+  'settings.terminal.bashPathInvalid': 'Path does not exist. Select a valid Bash executable.',
   'terminal.newTab': 'New Terminal',
   'terminal.openInTab': 'Open in Tab',
   'terminal.closePanel': 'Close terminal panel',
@@ -743,6 +749,19 @@ export const en = {
   'settings.computerUse.permRestartHint': 'After granting, restart the app for it to take effect.',
   'settings.computerUse.flagClipboard': 'Clipboard Access',
   'settings.computerUse.flagSystemKeys': 'System Key Combos',
+
+  // Settings > General - Mode
+  'settings.general.modeTitle': 'Mode',
+  'settings.general.modeDescription': 'Choose where app data is stored. Default mode respects the CLAUDE_CONFIG_DIR env var or uses system directories. Portable mode stores data in a configurable directory.',
+  'settings.general.modeDefault': 'Default',
+  'settings.general.modePortable': 'Portable',
+  'settings.general.modeDefaultHint': 'Uses CLAUDE_CONFIG_DIR env var if set, otherwise system directory (%APPDATA% on Windows).',
+  'settings.general.modePortableDir': 'Portable config dir',
+  'settings.general.modeSwitchTitle': 'Switch Mode?',
+  'settings.general.modeSwitchBody': 'Switch to {mode}? This requires a restart to take effect.',
+  'settings.general.modeSwitchConfirm': 'Switch and Restart Later',
+  'settings.general.modeRestartTitle': 'Restart Required',
+  'settings.general.modeRestartHint': 'Restart the app for the mode change to take effect.',
 
   // Settings > General
   'settings.general.appearanceTitle': 'Appearance',

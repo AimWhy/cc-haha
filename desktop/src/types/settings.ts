@@ -45,3 +45,11 @@ export type UserSettings = {
   language?: string
   [key: string]: unknown
 }
+
+export type AppMode = 'default' | 'portable'
+
+export type AppModeConfig = {
+  mode: AppMode
+  portableDir: string | null
+  defaultPortableDir: string | null
+}
