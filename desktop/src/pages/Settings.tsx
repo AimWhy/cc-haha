@@ -1990,33 +1990,6 @@ function GeneralSettings() {
           </div>
         </div>
       </div>
-      {/* UI Zoom */}
-      <div className="mt-8">
-        <h2 className="text-base font-semibold text-[var(--color-text-primary)] mb-1">{t('settings.general.uiZoom')}</h2>
-        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.uiZoomDescription')}</p>
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-end">
-            <span className="text-sm text-[var(--color-text-secondary)]">
-              {Math.round(uiZoom * 100)}%
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MIN * 100)}%</span>
-            <input
-              type="range"
-              min={UI_ZOOM_MIN}
-              max={UI_ZOOM_MAX}
-              step={UI_ZOOM_STEP}
-              value={uiZoom}
-              onChange={(e) => setUiZoom(parseFloat(e.target.value))}
-              onMouseUp={(e) => e.currentTarget.blur()}
-              className="flex-1"
-            />
-            <span className="text-xs text-[var(--color-text-tertiary)]">{Math.round(UI_ZOOM_MAX * 100)}%</span>
-          </div>
-        </div>
-      </div>
-
       {/* Confirm dialog for mode switch */}
       <ConfirmDialog
         open={modeSwitchConfirmOpen}

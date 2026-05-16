@@ -63,6 +63,66 @@ describe('settingsStore UI zoom', () => {
   })
 })
 
+describe('settingsStore app mode', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    vi.clearAllMocks()
+    delete (window as unknown as { __TAURI_INTERNALS__?: object }).__TAURI_INTERNALS__
+  })
+
+  it('hydrates app mode from the native desktop command', async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      mode: 'portable',
+      portableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+      defaultPortableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+    })
+    vi.doMock('@tauri-apps/api/core', () => ({ invoke }))
+    const tauriWindow = window as unknown as { __TAURI_INTERNALS__?: object }
+    tauriWindow.__TAURI_INTERNALS__ = {}
+
+    const { useSettingsStore } = await import('./settingsStore')
+
+    await useSettingsStore.getState().fetchAppMode()
+
+    expect(invoke).toHaveBeenCalledWith('get_app_mode')
+    expect(useSettingsStore.getState().appMode).toEqual({
+      mode: 'portable',
+      portableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+      defaultPortableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+    })
+  })
+
+  it('persists app mode through the native desktop command and marks restart required', async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined)
+    vi.doMock('@tauri-apps/api/core', () => ({ invoke }))
+    const tauriWindow = window as unknown as { __TAURI_INTERNALS__?: object }
+    tauriWindow.__TAURI_INTERNALS__ = {}
+
+    const { useSettingsStore } = await import('./settingsStore')
+    useSettingsStore.setState({
+      appMode: {
+        mode: 'default',
+        portableDir: null,
+        defaultPortableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+      },
+      appModeRequiresRestart: false,
+    })
+
+    await useSettingsStore.getState().setAppMode('portable')
+
+    expect(invoke).toHaveBeenCalledWith('set_app_mode', {
+      mode: 'portable',
+      portableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+    })
+    expect(useSettingsStore.getState().appMode).toEqual({
+      mode: 'portable',
+      portableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+      defaultPortableDir: 'C:\\cc-haha\\CLAUDE_CONFIG_DIR',
+    })
+    expect(useSettingsStore.getState().appModeRequiresRestart).toBe(true)
+  })
+})
+
 describe('settingsStore desktop notification persistence', () => {
   beforeEach(() => {
     vi.resetModules()

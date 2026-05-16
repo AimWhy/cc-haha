@@ -258,17 +258,6 @@ impl Default for AppModeConfig {
     }
 }
 
-/// Read the persisted app-mode.json from the given config directory.
-fn read_app_mode_config(config_dir: &Path) -> Option<AppModeConfig> {
-    let path = config_dir.join(APP_MODE_FILE);
-    fs::read_to_string(&path).ok().and_then(|data| {
-        serde_json::from_str(&data).ok().or_else(|| {
-            eprintln!("[desktop] failed to parse app-mode.json: {}", data);
-            None
-        })
-    })
-}
-
 /// Write the persisted app-mode.json to the given config directory.
 fn write_app_mode_config(config_dir: &Path, config: &AppModeConfig) {
     let path = config_dir.join(APP_MODE_FILE);
@@ -329,24 +318,25 @@ impl TerminalConfig {
             .unwrap_or_default()
     }
 
-    fn save(&self, app: &AppHandle) {
-        let Some(path) = terminal_config_path(app) else { return };
+    fn save(&self, app: &AppHandle) -> Result<(), String> {
+        let Some(path) = terminal_config_path(app) else {
+            return Err("terminal config path is unavailable".to_string());
+        };
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
-                eprintln!("[desktop] failed to create terminal config directory: {err}");
-                return;
+                return Err(format!("create terminal config directory: {err}"));
             }
         }
         let data = match serde_json::to_string_pretty(self) {
             Ok(data) => data,
             Err(err) => {
-                eprintln!("[desktop] failed to serialize terminal config: {err}");
-                return;
+                return Err(format!("serialize terminal config: {err}"));
             }
         };
         if let Err(err) = fs::write(&path, data) {
-            eprintln!("[desktop] failed to write terminal config: {err}");
+            return Err(format!("write terminal config: {err}"));
         }
+        Ok(())
     }
 }
 
@@ -1043,10 +1033,10 @@ fn get_terminal_bash_path(app: AppHandle) -> Option<String> {
 }
 
 #[tauri::command]
-fn set_terminal_bash_path(app: AppHandle, path: Option<String>) {
+fn set_terminal_bash_path(app: AppHandle, path: Option<String>) -> Result<(), String> {
     let mut config = TerminalConfig::load(&app);
-    config.bash_path = path;
-    config.save(&app);
+    config.bash_path = normalize_terminal_bash_path(path)?;
+    config.save(&app)
 }
 
 #[tauri::command]
@@ -1270,12 +1260,27 @@ fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-fn default_shell(custom_bash: Option<&str>) -> String {
+fn normalize_terminal_bash_path(path: Option<String>) -> Result<Option<String>, String> {
+    let Some(path) = path else {
+        return Ok(None);
+    };
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let bash_path = PathBuf::from(trimmed);
+    if !bash_path.is_file() {
+        return Err(format!("terminal bash path does not exist: {trimmed}"));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+fn default_shell(_custom_bash: Option<&str>) -> String {
     // On Windows, use configured bash path if set and valid
     #[cfg(target_os = "windows")]
-    if let Some(bash_path) = custom_bash {
+    if let Some(bash_path) = _custom_bash {
         let trimmed = bash_path.trim();
-        if !trimmed.is_empty() && PathBuf::from(trimmed).exists() {
+        if !trimmed.is_empty() && PathBuf::from(trimmed).is_file() {
             return trimmed.to_string();
         }
     }
@@ -1686,9 +1691,9 @@ fn kill_windows_sidecars() {
 mod tests {
     use super::{
         decode_terminal_output, default_utf8_locale, ensure_utf8_locale,
-        has_meaningful_intersection, is_persistable_window_state, parse_env_block,
-        run_notification_bridge, select_h5_dist_dir, StoredWindowState, SERVER_BIND_HOST,
-        SERVER_CONTROL_HOST,
+        has_meaningful_intersection, is_persistable_window_state, normalize_terminal_bash_path,
+        parse_env_block, run_notification_bridge, select_h5_dist_dir, StoredWindowState,
+        SERVER_BIND_HOST, SERVER_CONTROL_HOST,
     };
     use std::{collections::HashMap, fs};
 
@@ -1786,6 +1791,48 @@ mod tests {
         );
         assert_eq!(env.get("NODE_PATH").map(String::as_str), Some("/tmp/node"));
         assert_eq!(env.get("EMPTY").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn terminal_bash_path_normalizer_clears_blank_values() {
+        assert_eq!(
+            normalize_terminal_bash_path(Some("   ".to_string())).expect("blank path clears"),
+            None
+        );
+        assert_eq!(
+            normalize_terminal_bash_path(None).expect("missing path clears"),
+            None
+        );
+    }
+
+    #[test]
+    fn terminal_bash_path_normalizer_rejects_missing_files() {
+        let missing = std::env::temp_dir().join(format!(
+            "cchh-missing-bash-{}",
+            std::process::id()
+        ));
+
+        let error = normalize_terminal_bash_path(Some(missing.to_string_lossy().to_string()))
+            .expect_err("missing path should be rejected");
+
+        assert!(error.contains("terminal bash path does not exist"));
+    }
+
+    #[test]
+    fn terminal_bash_path_normalizer_accepts_existing_files() {
+        let path = std::env::temp_dir().join(format!(
+            "cchh-bash-path-test-{}",
+            std::process::id()
+        ));
+        fs::write(&path, "").expect("write bash path fixture");
+
+        assert_eq!(
+            normalize_terminal_bash_path(Some(format!("  {}  ", path.display())))
+                .expect("existing file is accepted"),
+            Some(path.to_string_lossy().to_string())
+        );
+
+        fs::remove_file(path).expect("remove bash path fixture");
     }
 
     #[test]
