@@ -561,13 +561,11 @@ export class SessionService {
   private isGoalLocalCommandOutput(output: string): boolean {
     const trimmed = output.trim()
     return (
-      trimmed.startsWith('Goal created.\n') ||
-      trimmed.startsWith('Goal replaced.\n') ||
-      trimmed.startsWith('Goal: ') ||
+      trimmed.startsWith('Goal set:') ||
+      trimmed.startsWith('Goal cleared:') ||
       trimmed === 'Goal cleared.' ||
       trimmed === 'Goal marked complete.' ||
-      trimmed === 'No active goal.' ||
-      trimmed === 'No goal to resume.'
+      trimmed === 'No active goal.'
     )
   }
 
@@ -614,7 +612,7 @@ export class SessionService {
     if (commandName !== 'goal') return null
 
     const args = this.readXmlTag(entry.content, 'command-args')?.trim()
-    if (!args || /^(status|pause|resume|complete|clear)\b/i.test(args)) return null
+    if (!args || /^clear\b/i.test(args)) return null
 
     const title = cleanSessionTitleSource(`/goal ${args}`)
     return title ? title.length > 80 ? title.slice(0, 80) + '...' : title : null

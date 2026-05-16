@@ -1488,7 +1488,7 @@ function extractGoalEvent(
   if (trimmed === 'Goal marked complete.') {
     return { action: 'completed', message: trimmed }
   }
-  if (trimmed === 'No active goal.' || trimmed === 'No goal to resume.') {
+  if (trimmed === 'No active goal.') {
     return { action: 'message', message: trimmed }
   }
 
@@ -1502,37 +1502,7 @@ function extractGoalEvent(
     }
   }
 
-  const actionPrefix = trimmed.startsWith('Goal replaced.\n')
-    ? 'replaced'
-    : trimmed.startsWith('Goal created.\n')
-      ? 'created'
-      : null
-  const body = actionPrefix
-    ? trimmed.split(/\r?\n/).slice(1).join('\n').trim()
-    : trimmed
-
-  const lines = Object.fromEntries(
-    body
-      .split(/\r?\n/)
-      .map((line) => {
-        const index = line.indexOf(':')
-        if (index < 0) return null
-        return [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()]
-      })
-      .filter((entry): entry is [string, string] => entry !== null),
-  )
-
-  if (!lines.goal) return command?.name === 'goal' ? { action: 'message', message: trimmed } : null
-
-  return {
-    action: actionPrefix ?? resolveGoalEventAction(command, lines.goal),
-    status: lines.goal,
-    objective: lines.objective,
-    budget: lines.budget,
-    elapsed: lines.elapsed,
-    continuations: lines.continuations,
-    message: trimmed,
-  }
+  return command?.name === 'goal' ? { action: 'message', message: trimmed } : null
 }
 
 function looksLikeGoalCommandOutput(output: string): boolean {
@@ -1542,26 +1512,8 @@ function looksLikeGoalCommandOutput(output: string): boolean {
     trimmed.startsWith('Goal cleared:') ||
     trimmed === 'Goal cleared.' ||
     trimmed === 'Goal marked complete.' ||
-    trimmed === 'No active goal.' ||
-    trimmed === 'No goal to resume.' ||
-    trimmed.startsWith('Goal created.\n') ||
-    trimmed.startsWith('Goal replaced.\n') ||
-    trimmed.startsWith('Goal: ')
+    trimmed === 'No active goal.'
   )
-}
-
-function resolveGoalEventAction(
-  command: { name: string; args: string } | undefined,
-  status: string,
-): GoalEventData['action'] {
-  const args = command?.args.trim() ?? ''
-  if (args === 'pause') return 'paused'
-  if (args === 'resume') return 'resumed'
-  if (!args || args === 'status') return 'status'
-  if (status === 'paused') return 'paused'
-  if (status === 'complete') return 'completed'
-  if (status === 'active') return 'created'
-  return 'status'
 }
 
 function getCompactBoundaryMessage(cliMsg: any): string {

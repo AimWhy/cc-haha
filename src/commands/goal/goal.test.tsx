@@ -90,28 +90,14 @@ describe('/goal command', () => {
         ].join('\n')),
         createCommandInputMessage([
           '<local-command-stdout>',
-          'Goal created.',
-          'Goal: active',
-          'Objective: ship persisted goal',
-          'Budget: 42 / 2,000 tokens',
-          'Elapsed: 1m',
-          'Continuations: 3',
+          'Goal set: ship persisted goal',
           '</local-command-stdout>',
         ].join('\n')),
         createCommandInputMessage([
           '<local-command-stdout>',
-          'Goal: complete',
-          'Objective: ship persisted goal',
-          'Budget: 1,234 / 2,000 tokens',
-          'Elapsed: 23m',
-          'Continuations: 2',
+          'Goal marked complete.',
           '</local-command-stdout>',
         ].join('\n')),
-        createCommandInputMessage([
-          '<command-name>/goal</command-name>',
-          '<command-args>status</command-args>',
-        ].join('\n')),
-        createCommandInputMessage('<local-command-stdout>No active goal.</local-command-stdout>'),
       ],
     })
 

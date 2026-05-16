@@ -282,7 +282,7 @@ describe('chatStore history mapping', () => {
     ])
   })
 
-  it('restores replacement /goal output as a replacement event', () => {
+  it('restores repeated /goal set output as the current created event', () => {
     const messages: MessageEntry[] = [
       {
         id: 'goal-command',
@@ -294,16 +294,7 @@ describe('chatStore history mapping', () => {
         id: 'goal-output',
         type: 'system',
         timestamp: '2026-04-06T00:00:01.000Z',
-        content: [
-          '<local-command-stdout>',
-          'Goal replaced.',
-          'Goal: active',
-          'Objective: ship the replacement target',
-          'Budget: 0 / unlimited tokens',
-          'Elapsed: 0s',
-          'Continuations: 0',
-          '</local-command-stdout>',
-        ].join('\n'),
+        content: '<local-command-stdout>Goal set: ship the replacement target</local-command-stdout>',
       },
     ]
 
@@ -316,10 +307,9 @@ describe('chatStore history mapping', () => {
       {
         id: 'goal-output',
         type: 'goal_event',
-        action: 'replaced',
+        action: 'created',
         status: 'active',
         objective: 'ship the replacement target',
-        budget: '0 / unlimited tokens',
       },
     ])
   })
@@ -337,34 +327,13 @@ describe('chatStore history mapping', () => {
           id: 'goal-output',
           type: 'system',
           timestamp: '2026-04-06T00:00:01.000Z',
-          content: [
-            '<local-command-stdout>',
-            'Goal created.',
-            'Goal: active',
-            'Objective: ship the smoke test',
-            'Budget: 0 / 2,000 tokens',
-            'Elapsed: 0s',
-            'Continuations: 0',
-            '</local-command-stdout>',
-          ].join('\n'),
+          content: '<local-command-stdout>Goal set: ship the smoke test</local-command-stdout>',
         },
         {
           id: 'goal-complete',
           type: 'system',
           timestamp: '2026-04-06T00:00:02.000Z',
           content: '<local-command-stdout>Goal marked complete.</local-command-stdout>',
-        },
-        {
-          id: 'goal-status-command',
-          type: 'system',
-          timestamp: '2026-04-06T00:00:03.000Z',
-          content: '<command-name>/goal</command-name>\n<command-args>status</command-args>',
-        },
-        {
-          id: 'goal-stale-empty-output',
-          type: 'system',
-          timestamp: '2026-04-06T00:00:04.000Z',
-          content: '<local-command-stdout>No active goal.</local-command-stdout>',
         },
       ],
     })
@@ -394,17 +363,6 @@ describe('chatStore history mapping', () => {
         type: 'goal_event',
         action: 'completed',
         message: 'Goal marked complete.',
-      },
-      {
-        id: 'goal-status-command',
-        type: 'user_text',
-        content: '/goal status',
-      },
-      {
-        id: 'goal-stale-empty-output',
-        type: 'goal_event',
-        action: 'message',
-        message: 'No active goal.',
       },
     ])
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
@@ -1329,7 +1287,7 @@ describe('chatStore history mapping', () => {
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
       subtype: 'goal_event',
-      message: 'Goal: active',
+      message: 'Goal set: ship the smoke test',
       data: {
         action: 'created',
         status: 'active',
@@ -1360,9 +1318,9 @@ describe('chatStore history mapping', () => {
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
       subtype: 'goal_event',
-      message: 'Goal replaced.',
+      message: 'Goal set: ship the replacement target',
       data: {
-        action: 'replaced',
+        action: 'created',
         status: 'active',
         objective: 'ship the replacement target',
         budget: '0 / unlimited tokens',
@@ -1371,7 +1329,7 @@ describe('chatStore history mapping', () => {
     })
 
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.activeGoal).toMatchObject({
-      action: 'replaced',
+      action: 'created',
       status: 'active',
       objective: 'ship the replacement target',
       budget: '0 / unlimited tokens',

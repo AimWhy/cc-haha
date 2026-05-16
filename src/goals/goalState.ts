@@ -220,7 +220,7 @@ function goalFromLocalCommandOutput(
   if (trimmed === 'Goal cleared.' || trimmed.startsWith('Goal cleared:')) {
     return null
   }
-  if (trimmed === 'No active goal.' || trimmed === 'No goal to resume.') return current
+  if (trimmed === 'No active goal.') return current
   if (trimmed === 'Goal marked complete.') {
     return current ? { ...current, status: 'complete', updatedAt: now } : null
   }
@@ -241,27 +241,7 @@ function goalFromLocalCommandOutput(
     }
   }
 
-  const body = trimmed.startsWith('Goal created.\n') || trimmed.startsWith('Goal replaced.\n')
-    ? trimmed.split(/\r?\n/).slice(1).join('\n').trim()
-    : trimmed
-  const fields = parseStatusFields(body)
-  const status = parseGoalStatus(fields.goal)
-  if (!status || !fields.objective) return current
-
-  const budget = parseBudget(fields.budget)
-  const elapsedMs = parseElapsed(fields.elapsed)
-  return {
-    goalId: randomUUID(),
-    threadId,
-    objective: fields.objective,
-    status,
-    tokenBudget: budget.tokenBudget,
-    tokensUsed: budget.tokensUsed,
-    continuationCount: parseInteger(fields.continuations) ?? 0,
-    lastReason: fields['latest reason'] ?? null,
-    createdAt: now - elapsedMs,
-    updatedAt: now,
-  }
+  return current
 }
 
 function messageToText(message: Message): string {
@@ -291,70 +271,10 @@ function readXmlTag(text: string, tag: string): string | null {
 function looksLikeGoalStatusOutput(output: string): boolean {
   const trimmed = output.trim()
   return (
-    trimmed.startsWith('Goal created.\n') ||
-    trimmed.startsWith('Goal replaced.\n') ||
     trimmed.startsWith('Goal set:') ||
-    trimmed.startsWith('Goal: ') ||
     trimmed === 'Goal cleared.' ||
     trimmed.startsWith('Goal cleared:') ||
-    trimmed === 'Goal marked complete.'
+    trimmed === 'Goal marked complete.' ||
+    trimmed === 'No active goal.'
   )
-}
-
-function parseStatusFields(output: string): Record<string, string> {
-  return Object.fromEntries(
-    output
-      .split(/\r?\n/)
-      .map((line) => {
-        const index = line.indexOf(':')
-        if (index < 0) return null
-        return [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()]
-      })
-      .filter((entry): entry is [string, string] => entry !== null),
-  )
-}
-
-function parseGoalStatus(raw: string | undefined): ThreadGoalStatus | null {
-  if (
-    raw === 'active' ||
-    raw === 'paused' ||
-    raw === 'complete' ||
-    raw === 'budget_limited'
-  ) {
-    return raw
-  }
-  return null
-}
-
-function parseBudget(raw: string | undefined): {
-  tokenBudget: number | null
-  tokensUsed: number
-} {
-  if (!raw) return { tokenBudget: null, tokensUsed: 0 }
-  const match = raw.match(/^([\d,]+)\s*\/\s*(unlimited|[\d,]+)\s+tokens$/i)
-  if (!match) return { tokenBudget: null, tokensUsed: 0 }
-  return {
-    tokensUsed: parseInteger(match[1]) ?? 0,
-    tokenBudget: match[2]?.toLowerCase() === 'unlimited'
-      ? null
-      : parseInteger(match[2]) ?? null,
-  }
-}
-
-function parseElapsed(raw: string | undefined): number {
-  if (!raw) return 0
-  let ms = 0
-  for (const match of raw.matchAll(/(\d+)\s*([hms])/g)) {
-    const value = Number(match[1])
-    if (match[2] === 'h') ms += value * 60 * 60 * 1000
-    if (match[2] === 'm') ms += value * 60 * 1000
-    if (match[2] === 's') ms += value * 1000
-  }
-  return ms
-}
-
-function parseInteger(raw: string | undefined): number | null {
-  if (!raw) return null
-  const value = Number(raw.replace(/,/g, ''))
-  return Number.isFinite(value) ? value : null
 }

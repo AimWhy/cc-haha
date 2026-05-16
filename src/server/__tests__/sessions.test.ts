@@ -758,16 +758,7 @@ describe('SessionService', () => {
         isSidechain: false,
         type: 'system',
         subtype: 'local_command',
-        content: [
-          '<local-command-stdout>',
-          'Goal created.',
-          'Goal: active',
-          'Objective: ship persisted goal',
-          'Budget: 0 / unlimited tokens',
-          'Elapsed: 0s',
-          'Continuations: 0',
-          '</local-command-stdout>',
-        ].join('\n'),
+        content: '<local-command-stdout>Goal set: ship persisted goal</local-command-stdout>',
         level: 'info',
         timestamp: '2026-01-01T00:00:02.000Z',
         uuid: 'goal-output',
@@ -786,7 +777,7 @@ describe('SessionService', () => {
       {
         id: 'goal-output',
         type: 'system',
-        content: expect.stringContaining('Goal created.'),
+        content: expect.stringContaining('Goal set: ship persisted goal'),
       },
       {
         type: 'assistant',

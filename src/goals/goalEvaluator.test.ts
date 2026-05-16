@@ -149,12 +149,7 @@ describe('goalEvaluator', () => {
         createUserMessage({
           content: [
             '<local-command-stdout>',
-            'Goal created.',
-            'Goal: active',
-            'Objective: ship persisted goal',
-            'Budget: 42 / 2,000 tokens',
-            'Elapsed: 1m',
-            'Continuations: 3',
+            'Goal set: ship persisted goal',
             '</local-command-stdout>',
           ].join('\n'),
         }),
@@ -174,8 +169,8 @@ describe('goalEvaluator', () => {
     expect(decision.action).toBe('continue')
     const restored = getThreadGoal(threadId)
     expect(restored?.objective).toBe('ship persisted goal')
-    expect(restored?.tokensUsed).toBe(42)
-    expect(restored?.tokenBudget).toBe(2_000)
-    expect(restored?.continuationCount).toBe(4)
+    expect(restored?.tokensUsed).toBe(0)
+    expect(restored?.tokenBudget).toBeNull()
+    expect(restored?.continuationCount).toBe(1)
   })
 })

@@ -1048,7 +1048,6 @@ type AssistantHistoryBlock = { type: string; text?: string; thinking?: string; n
 type UserHistoryBlock = { type: string; text?: string; tool_use_id?: string; content?: unknown; is_error?: boolean; source?: { data?: string }; mimeType?: string; media_type?: string; name?: string }
 
 const TASK_NOTIFICATION_RE = /^<task-notification>\s*[\s\S]*<\/task-notification>$/i
-const GOAL_CLEAR_ALIASES = new Set(['clear'])
 const GOAL_EVENT_ACTIONS = new Set<GoalEventAction>([
   'created',
   'replaced',
@@ -1211,7 +1210,7 @@ function parseGoalEventFromLocalCommandOutput(
 
   if (trimmed === 'Goal cleared.' || trimmed.startsWith('Goal cleared:')) return { action: 'cleared', message: trimmed }
   if (trimmed === 'Goal marked complete.') return { action: 'completed', message: trimmed }
-  if (trimmed === 'No active goal.' || trimmed === 'No goal to resume.') return { action: 'message', message: trimmed }
+  if (trimmed === 'No active goal.') return { action: 'message', message: trimmed }
   if (trimmed.startsWith('Goal set:')) {
     const objective = trimmed.slice('Goal set:'.length).trim()
     return {
@@ -1222,52 +1221,7 @@ function parseGoalEventFromLocalCommandOutput(
     }
   }
 
-  const actionPrefix = trimmed.startsWith('Goal replaced.\n')
-    ? 'replaced'
-    : trimmed.startsWith('Goal created.\n')
-      ? 'created'
-      : null
-  const body = actionPrefix
-    ? trimmed.split(/\r?\n/).slice(1).join('\n').trim()
-    : trimmed
-
-  const fields = Object.fromEntries(
-    body
-      .split(/\r?\n/)
-      .map((line) => {
-        const index = line.indexOf(':')
-        if (index < 0) return null
-        return [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()]
-      })
-      .filter((entry): entry is [string, string] => entry !== null),
-  )
-  if (!fields.goal) return command?.name === 'goal' ? { action: 'message', message: trimmed } : null
-
-  return {
-    action: actionPrefix ?? resolveHistoryGoalAction(command, fields.goal),
-    status: fields.goal,
-    objective: fields.objective,
-    budget: fields.budget,
-    elapsed: fields.elapsed,
-    continuations: fields.continuations,
-    message: trimmed,
-  }
-}
-
-function resolveHistoryGoalAction(
-  command: { name: string; args: string } | null,
-  status: string,
-): GoalEventAction {
-  const args = command?.args.trim() ?? ''
-  if (args === 'pause') return 'paused'
-  if (args === 'resume') return 'resumed'
-  if (GOAL_CLEAR_ALIASES.has(args)) return 'cleared'
-  if (args === 'complete') return 'completed'
-  if (!args || args === 'status') return 'status'
-  if (status === 'active') return 'created'
-  if (status === 'paused') return 'paused'
-  if (status === 'complete') return 'completed'
-  return 'status'
+  return command?.name === 'goal' ? { action: 'message', message: trimmed } : null
 }
 
 function extractTaskNotification(content: unknown): AgentTaskNotification | null {
