@@ -156,6 +156,29 @@ export type AgentTaskNotification = {
   status: 'completed' | 'failed' | 'stopped'
   summary?: string
   outputFile?: string
+  usage?: BackgroundAgentTaskUsage
+}
+
+export type BackgroundAgentTaskUsage = {
+  totalTokens?: number
+  toolUses?: number
+  durationMs?: number
+}
+
+export type BackgroundAgentTask = {
+  taskId: string
+  toolUseId?: string
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  description?: string
+  taskType?: string
+  workflowName?: string
+  prompt?: string
+  summary?: string
+  lastToolName?: string
+  outputFile?: string
+  usage?: BackgroundAgentTaskUsage
+  startedAt: number
+  updatedAt: number
 }
 
 export type MemoryEventFile = {

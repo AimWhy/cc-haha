@@ -17,6 +17,8 @@ import type {
   ActiveGoalState,
   AgentTaskNotification,
   AttachmentRef,
+  BackgroundAgentTask,
+  BackgroundAgentTaskUsage,
   ChatState,
   ComputerUsePermissionRequest,
   ComputerUsePermissionResponse,
@@ -55,6 +57,7 @@ export type PerSessionState = {
   statusVerb: string
   slashCommands: Array<{ name: string; description: string; argumentHint?: string }>
   agentTaskNotifications: Record<string, AgentTaskNotification>
+  backgroundAgentTasks?: Record<string, BackgroundAgentTask>
   activeGoal?: ActiveGoalState | null
   elapsedTimer: ReturnType<typeof setInterval> | null
   composerPrefill?: {
@@ -80,6 +83,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   statusVerb: '',
   slashCommands: [],
   agentTaskNotifications: {},
+  backgroundAgentTasks: {},
   activeGoal: null,
   elapsedTimer: null,
   composerPrefill: null,
@@ -929,6 +933,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             tokenUsage: { input_tokens: 0, output_tokens: 0 },
             slashCommands: [],
             activeGoal: null,
+            backgroundAgentTasks: {},
+            agentTaskNotifications: {},
           }))
           clearPendingDelta(sessionId)
           clearPendingTaskToolUseIds(sessionId)
@@ -988,38 +994,52 @@ export const useChatStore = create<ChatStore>((set, get) => ({
             }))
           }
         }
+        if ((msg.subtype === 'task_started' || msg.subtype === 'task_progress') && msg.data && typeof msg.data === 'object') {
+          const taskEvent = normalizeBackgroundAgentTaskEvent(msg.data, msg.subtype)
+          if (taskEvent) {
+            const now = Date.now()
+            update((session) => ({
+              backgroundAgentTasks: upsertBackgroundAgentTask(
+                session.backgroundAgentTasks ?? {},
+                taskEvent,
+                now,
+              ),
+            }))
+          }
+        }
         if (msg.subtype === 'task_notification' && msg.data && typeof msg.data === 'object') {
           const data = msg.data as Record<string, unknown>
+          const taskEvent = normalizeBackgroundAgentTaskEvent(data, 'task_notification')
           const toolUseId =
             typeof data.tool_use_id === 'string' && data.tool_use_id.trim()
               ? data.tool_use_id
               : null
           const taskStatus = data.status
-          if (
-            toolUseId &&
-            (taskStatus === 'completed' ||
-              taskStatus === 'failed' ||
-              taskStatus === 'stopped')
-          ) {
+          if (taskEvent) {
+            const now = Date.now()
             update((session) => ({
+              backgroundAgentTasks: upsertBackgroundAgentTask(
+                session.backgroundAgentTasks ?? {},
+                taskEvent,
+                now,
+              ),
               agentTaskNotifications: {
                 ...session.agentTaskNotifications,
-                [toolUseId]: {
-                  taskId:
-                    typeof data.task_id === 'string' && data.task_id.trim()
-                      ? data.task_id
-                      : toolUseId,
-                  toolUseId,
-                  status: taskStatus,
-                  summary:
-                    typeof data.summary === 'string' && data.summary.trim()
-                      ? data.summary
-                      : undefined,
-                  outputFile:
-                    typeof data.output_file === 'string' && data.output_file.trim()
-                      ? data.output_file
-                      : undefined,
-                },
+                ...(toolUseId &&
+                (taskStatus === 'completed' ||
+                  taskStatus === 'failed' ||
+                  taskStatus === 'stopped')
+                  ? {
+                      [toolUseId]: {
+                        taskId: taskEvent.taskId,
+                        toolUseId,
+                        status: taskStatus,
+                        summary: taskEvent.summary,
+                        outputFile: taskEvent.outputFile,
+                        usage: taskEvent.usage,
+                      },
+                    }
+                  : {}),
               },
             }))
           }
@@ -1107,6 +1127,88 @@ function decodeXmlText(text: string): string {
 function readXmlTag(xml: string, tag: string): string | undefined {
   const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i'))
   return match?.[1] ? decodeXmlText(match[1].trim()) : undefined
+}
+
+function readNonEmptyString(record: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return undefined
+}
+
+function normalizeBackgroundTaskUsage(value: unknown): BackgroundAgentTaskUsage | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const record = value as Record<string, unknown>
+  const usage: BackgroundAgentTaskUsage = {}
+  const totalTokens = record.total_tokens ?? record.totalTokens
+  const toolUses = record.tool_uses ?? record.toolUses
+  const durationMs = record.duration_ms ?? record.durationMs
+  if (typeof totalTokens === 'number') usage.totalTokens = totalTokens
+  if (typeof toolUses === 'number') usage.toolUses = toolUses
+  if (typeof durationMs === 'number') usage.durationMs = durationMs
+  return Object.keys(usage).length > 0 ? usage : undefined
+}
+
+function normalizeBackgroundAgentTaskEvent(
+  data: unknown,
+  subtype: string,
+): Partial<BackgroundAgentTask> & Pick<BackgroundAgentTask, 'taskId' | 'status'> | null {
+  if (!data || typeof data !== 'object') return null
+  const record = data as Record<string, unknown>
+  const taskId = readNonEmptyString(record, 'task_id', 'taskId')
+  const toolUseId = readNonEmptyString(record, 'tool_use_id', 'toolUseId')
+  const id = taskId ?? toolUseId
+  if (!id) return null
+
+  const rawStatus = readNonEmptyString(record, 'status')
+  const status = rawStatus === 'completed' || rawStatus === 'failed' || rawStatus === 'stopped'
+    ? rawStatus
+    : rawStatus === 'killed'
+      ? 'stopped'
+      : subtype === 'task_notification'
+        ? 'completed'
+        : 'running'
+
+  return {
+    taskId: id,
+    toolUseId,
+    status,
+    description: readNonEmptyString(record, 'description', 'message', 'title'),
+    taskType: readNonEmptyString(record, 'task_type', 'taskType'),
+    workflowName: readNonEmptyString(record, 'workflow_name', 'workflowName'),
+    prompt: readNonEmptyString(record, 'prompt'),
+    summary: readNonEmptyString(record, 'summary'),
+    lastToolName: readNonEmptyString(record, 'last_tool_name', 'lastToolName'),
+    outputFile: readNonEmptyString(record, 'output_file', 'outputFile'),
+    usage: normalizeBackgroundTaskUsage(record.usage),
+  }
+}
+
+function upsertBackgroundAgentTask(
+  current: Record<string, BackgroundAgentTask>,
+  event: Partial<BackgroundAgentTask> & Pick<BackgroundAgentTask, 'taskId' | 'status'>,
+  now: number,
+): Record<string, BackgroundAgentTask> {
+  const existing = current[event.taskId]
+  return {
+    ...current,
+    [event.taskId]: {
+      taskId: event.taskId,
+      toolUseId: event.toolUseId ?? existing?.toolUseId,
+      status: event.status,
+      description: event.description ?? existing?.description,
+      taskType: event.taskType ?? existing?.taskType,
+      workflowName: event.workflowName ?? existing?.workflowName,
+      prompt: event.prompt ?? existing?.prompt,
+      summary: event.summary ?? existing?.summary,
+      lastToolName: event.lastToolName ?? existing?.lastToolName,
+      outputFile: event.outputFile ?? existing?.outputFile,
+      usage: event.usage ?? existing?.usage,
+      startedAt: existing?.startedAt ?? now,
+      updatedAt: now,
+    },
+  }
 }
 
 function normalizeGoalEventData(

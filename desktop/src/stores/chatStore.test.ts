@@ -150,6 +150,7 @@ function makeSession(overrides: Partial<PerSessionState> = {}): PerSessionState 
     statusVerb: '',
     slashCommands: [],
     agentTaskNotifications: {},
+    backgroundAgentTasks: {},
     elapsedTimer: null,
     ...overrides,
   }
@@ -1123,6 +1124,98 @@ describe('chatStore history mapping', () => {
       toolUseId: 'agent-tool-1',
       status: 'completed',
       summary: 'Agent "修复异常处理" completed',
+      outputFile: '/tmp/agent-output.txt',
+    })
+  })
+
+  it('tracks background agent task lifecycle events for desktop visibility', () => {
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          chatState: 'tool_executing',
+        }),
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'task_started',
+      data: {
+        task_id: 'agent-task-1',
+        tool_use_id: 'agent-tool-1',
+        description: 'Verify the todo app',
+        task_type: 'local_agent',
+        prompt: 'Run E2E verification',
+      },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks?.['agent-task-1']).toMatchObject({
+      taskId: 'agent-task-1',
+      toolUseId: 'agent-tool-1',
+      status: 'running',
+      description: 'Verify the todo app',
+      taskType: 'local_agent',
+      prompt: 'Run E2E verification',
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'task_progress',
+      data: {
+        task_id: 'agent-task-1',
+        tool_use_id: 'agent-tool-1',
+        description: 'Verify the todo app',
+        summary: 'Running Playwright checks',
+        last_tool_name: 'Bash',
+        usage: {
+          total_tokens: 1200,
+          tool_uses: 4,
+          duration_ms: 45000,
+        },
+      },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks?.['agent-task-1']).toMatchObject({
+      status: 'running',
+      summary: 'Running Playwright checks',
+      lastToolName: 'Bash',
+      usage: {
+        totalTokens: 1200,
+        toolUses: 4,
+        durationMs: 45000,
+      },
+    })
+
+    useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+      type: 'system_notification',
+      subtype: 'task_notification',
+      data: {
+        task_id: 'agent-task-1',
+        tool_use_id: 'agent-tool-1',
+        status: 'completed',
+        summary: 'Found and fixed localStorage corruption.',
+        output_file: '/tmp/agent-output.txt',
+        usage: {
+          total_tokens: 2400,
+          tool_uses: 9,
+          duration_ms: 120000,
+        },
+      },
+    })
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks?.['agent-task-1']).toMatchObject({
+      status: 'completed',
+      summary: 'Found and fixed localStorage corruption.',
+      outputFile: '/tmp/agent-output.txt',
+      usage: {
+        totalTokens: 2400,
+        toolUses: 9,
+        durationMs: 120000,
+      },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.agentTaskNotifications['agent-tool-1']).toMatchObject({
+      status: 'completed',
+      summary: 'Found and fixed localStorage corruption.',
       outputFile: '/tmp/agent-output.txt',
     })
   })

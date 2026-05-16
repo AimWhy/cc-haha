@@ -1276,18 +1276,34 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
         }]
       }
       if (subtype === 'task_started') {
-        return [{
-          type: 'status',
-          state: 'tool_executing',
-          verb: cliMsg.message || 'Task started',
-        }]
+        return [
+          {
+            type: 'system_notification',
+            subtype: 'task_started',
+            message: cliMsg.message || cliMsg.description || 'Task started',
+            data: cliMsg,
+          },
+          {
+            type: 'status',
+            state: 'tool_executing',
+            verb: cliMsg.message || cliMsg.description || 'Task started',
+          },
+        ]
       }
       if (subtype === 'task_progress') {
-        return [{
-          type: 'status',
-          state: 'tool_executing',
-          verb: cliMsg.message || 'Task in progress',
-        }]
+        return [
+          {
+            type: 'system_notification',
+            subtype: 'task_progress',
+            message: cliMsg.message || cliMsg.summary || cliMsg.description || 'Task in progress',
+            data: cliMsg,
+          },
+          {
+            type: 'status',
+            state: 'tool_executing',
+            verb: cliMsg.message || cliMsg.summary || cliMsg.description || 'Task in progress',
+          },
+        ]
       }
       if (subtype === 'session_state_changed') {
         return [{

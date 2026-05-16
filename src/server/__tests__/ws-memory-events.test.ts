@@ -39,6 +39,63 @@ describe('WebSocket memory events', () => {
   })
 })
 
+describe('WebSocket background task events', () => {
+  it('forwards task start and progress as structured desktop notifications', () => {
+    const started = {
+      type: 'system',
+      subtype: 'task_started',
+      task_id: 'agent-task-1',
+      tool_use_id: 'agent-tool-1',
+      description: 'Verify the todo app',
+      task_type: 'local_agent',
+      prompt: 'Run E2E checks',
+    }
+
+    expect(translateCliMessage(started, 'session-1')).toEqual([
+      {
+        type: 'system_notification',
+        subtype: 'task_started',
+        message: 'Verify the todo app',
+        data: started,
+      },
+      {
+        type: 'status',
+        state: 'tool_executing',
+        verb: 'Verify the todo app',
+      },
+    ])
+
+    const progress = {
+      type: 'system',
+      subtype: 'task_progress',
+      task_id: 'agent-task-1',
+      tool_use_id: 'agent-tool-1',
+      description: 'Verify the todo app',
+      summary: 'Running Playwright checks',
+      last_tool_name: 'Bash',
+      usage: {
+        total_tokens: 1200,
+        tool_uses: 4,
+        duration_ms: 45000,
+      },
+    }
+
+    expect(translateCliMessage(progress, 'session-1')).toEqual([
+      {
+        type: 'system_notification',
+        subtype: 'task_progress',
+        message: 'Running Playwright checks',
+        data: progress,
+      },
+      {
+        type: 'status',
+        state: 'tool_executing',
+        verb: 'Running Playwright checks',
+      },
+    ])
+  })
+})
+
 describe('WebSocket goal command events', () => {
   const goalStatusOutput = 'Goal set: ship the smoke test'
 
