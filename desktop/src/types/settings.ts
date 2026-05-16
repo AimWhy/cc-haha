@@ -43,6 +43,7 @@ export type UserSettings = {
   desktopNotificationsEnabled?: boolean
   webSearch?: WebSearchSettings
   language?: string
+  uiZoom?: number
   [key: string]: unknown
 }
 
