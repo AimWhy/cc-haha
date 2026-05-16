@@ -135,7 +135,7 @@ describe('ActiveSession task polling', () => {
     expect(screen.getByTestId('chat-input')).toHaveAttribute('data-variant', 'default')
   })
 
-  it('shows the current goal as a persistent session status panel', () => {
+  it('does not duplicate the current goal as a page-level status panel', () => {
     const sessionId = 'goal-visible-session'
 
     useSessionStore.setState({
@@ -199,15 +199,11 @@ describe('ActiveSession task polling', () => {
 
     render(<ActiveSession />)
 
-    const panel = screen.getByTestId('active-goal-panel')
-    expect(panel).toHaveTextContent('当前目标')
-    expect(panel).toHaveTextContent('自循环运行中')
-    expect(panel).toHaveTextContent('ship the smoke test')
-    expect(panel).toHaveTextContent('预算 0 / 2,000 tokens')
-    expect(panel).toHaveTextContent('续作次数 0')
+    expect(screen.queryByTestId('active-goal-panel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('message-list')).toBeInTheDocument()
   })
 
-  it('shows background agent progress below the goal panel', () => {
+  it('does not render background agent progress as a page-level panel', () => {
     const sessionId = 'background-agent-visible-session'
 
     useSessionStore.setState({
@@ -277,11 +273,8 @@ describe('ActiveSession task polling', () => {
 
     render(<ActiveSession />)
 
-    const panel = screen.getByTestId('background-agent-panel')
-    expect(panel).toHaveTextContent('后台 Agent')
-    expect(panel).toHaveTextContent('运行中')
-    expect(panel).toHaveTextContent('local_agent')
-    expect(panel).toHaveTextContent('Running Playwright checks')
+    expect(screen.queryByTestId('background-agent-panel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('message-list')).toBeInTheDocument()
   })
 
   it('refreshes CLI tasks repeatedly while a turn is active', async () => {

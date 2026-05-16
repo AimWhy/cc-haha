@@ -1,5 +1,5 @@
 import { useRef, useEffect, useMemo, memo, useState, useCallback, useLayoutEffect, type ReactNode } from 'react'
-import { ArrowDown, BookMarked, ChevronDown, ChevronRight, Settings, Target } from 'lucide-react'
+import { ArrowDown, BookMarked, Bot, CheckCircle2, ChevronDown, ChevronRight, LoaderCircle, Settings, Target, XCircle } from 'lucide-react'
 import { ApiError } from '../../api/client'
 import { sessionsApi, type SessionTurnCheckpoint } from '../../api/sessions'
 import { useChatStore } from '../../stores/chatStore'
@@ -27,6 +27,7 @@ type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
 type MemoryEvent = Extract<UIMessage, { type: 'memory_event' }>
 type GoalEvent = Extract<UIMessage, { type: 'goal_event' }>
+type BackgroundTaskEvent = Extract<UIMessage, { type: 'background_task' }>
 
 type RenderItem =
   | { kind: 'tool_group'; toolCalls: ToolCall[]; id: string }
@@ -220,6 +221,66 @@ function GoalEventCard({ message }: { message: GoalEvent }) {
   )
 }
 
+function formatBackgroundTaskDuration(durationMs?: number) {
+  if (typeof durationMs !== 'number' || durationMs < 0) return null
+  const seconds = Math.round(durationMs / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${seconds % 60}s`
+}
+
+function BackgroundTaskEventCard({ message }: { message: BackgroundTaskEvent }) {
+  const t = useTranslation()
+  const { task } = message
+  const isRunning = task.status === 'running'
+  const isFailed = task.status === 'failed' || task.status === 'stopped'
+  const duration = formatBackgroundTaskDuration(task.usage?.durationMs)
+  const detail = task.summary || task.lastToolName || task.description || task.outputFile || task.taskId
+
+  return (
+    <div className="mb-2">
+      <div
+        data-testid="background-task-event-card"
+        className="flex min-w-0 items-start gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-2"
+      >
+        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center">
+          {isRunning ? (
+            <LoaderCircle size={15} strokeWidth={2.25} className="animate-spin text-[var(--color-accent)]" aria-hidden="true" />
+          ) : isFailed ? (
+            <XCircle size={15} strokeWidth={2.25} className="text-[var(--color-error)]" aria-hidden="true" />
+          ) : (
+            <CheckCircle2 size={15} strokeWidth={2.25} className="text-[var(--color-success)]" aria-hidden="true" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <Bot size={14} strokeWidth={2.25} className="shrink-0 text-[var(--color-text-tertiary)]" aria-hidden="true" />
+            <span className="shrink-0 text-[12px] font-medium text-[var(--color-text-primary)]">
+              {task.taskType || t('chat.backgroundAgents.agent')}
+            </span>
+            <span className="shrink-0 text-[11px] text-[var(--color-text-tertiary)]">
+              {t(`chat.backgroundAgents.status.${task.status}`)}
+            </span>
+            {task.usage?.totalTokens ? (
+              <span className="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
+                {t('chat.backgroundAgents.tokens', { count: task.usage.totalTokens.toLocaleString() })}
+              </span>
+            ) : null}
+            {duration ? (
+              <span className="hidden shrink-0 text-[11px] text-[var(--color-text-tertiary)] sm:inline">
+                {duration}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-0.5 truncate text-[12px] leading-5 text-[var(--color-text-secondary)]">
+            {detail}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SelectableChatMessage({
   sessionId,
   messageId,
@@ -354,6 +415,7 @@ function isTurnResponseMessage(message: UIMessage) {
     message.type === 'assistant_text' ||
     message.type === 'tool_use' ||
     message.type === 'tool_result' ||
+    message.type === 'background_task' ||
     message.type === 'error' ||
     message.type === 'task_summary'
   )
@@ -1124,6 +1186,8 @@ export const MessageBlock = memo(function MessageBlock({
       return <MemoryEventCard message={message} />
     case 'goal_event':
       return <GoalEventCard message={message} />
+    case 'background_task':
+      return <BackgroundTaskEventCard message={message} />
     case 'system':
       return (
         <div className="mb-3 text-center text-xs text-[var(--color-text-tertiary)]">

@@ -200,6 +200,57 @@ describe('MessageList nested tool calls', () => {
     expect(screen.getByText('Budget: 0 / unlimited tokens')).toBeTruthy()
   })
 
+  it('renders background agent progress inline in the transcript', () => {
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'user-1',
+              type: 'user_text',
+              content: 'run review',
+              timestamp: 1,
+            },
+            {
+              id: 'background-task-agent-1',
+              type: 'background_task',
+              timestamp: 2,
+              task: {
+                taskId: 'agent-task-1',
+                toolUseId: 'agent-tool-1',
+                status: 'running',
+                taskType: 'local_agent',
+                summary: 'Running Playwright checks',
+                usage: {
+                  totalTokens: 1200,
+                  toolUses: 4,
+                  durationMs: 45000,
+                },
+                startedAt: 2,
+                updatedAt: 2,
+              },
+            },
+            {
+              id: 'assistant-1',
+              type: 'assistant_text',
+              content: 'continuing',
+              timestamp: 3,
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    const card = screen.getByTestId('background-task-event-card')
+    expect(card.textContent).toContain('local_agent')
+    expect(card.textContent).toContain('running')
+    expect(card.textContent).toContain('Running Playwright checks')
+    expect(card.textContent).toContain('1,200 tokens')
+    expect(card.textContent).toContain('45s')
+  })
+
   it('restores the full transcript when scrolling away from latest', async () => {
     useChatStore.setState({
       sessions: {

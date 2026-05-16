@@ -90,6 +90,7 @@ export type SessionTaskNotification = {
   status: 'completed' | 'failed' | 'stopped'
   summary?: string
   outputFile?: string
+  timestamp?: string
 }
 
 export type TranscriptUsageSnapshot = {
@@ -512,7 +513,10 @@ export class SessionService {
     return match?.[1] ? this.decodeXmlText(match[1].trim()) : undefined
   }
 
-  private parseTaskNotificationContent(content: unknown): SessionTaskNotification | null {
+  private parseTaskNotificationContent(
+    content: unknown,
+    timestamp?: string,
+  ): SessionTaskNotification | null {
     const xml = this.extractTextBlocks(content)
       .map((text) => this.extractTaskNotificationXml(text))
       .find((value): value is string => value !== null)
@@ -536,6 +540,7 @@ export class SessionService {
       status,
       ...(summary ? { summary } : {}),
       ...(outputFile ? { outputFile } : {}),
+      ...(timestamp ? { timestamp } : {}),
     }
   }
 
@@ -1835,7 +1840,10 @@ export class SessionService {
     const notifications: SessionTaskNotification[] = []
     for (const entry of entries) {
       if (entry.message?.role !== 'user') continue
-      const notification = this.parseTaskNotificationContent(entry.message.content)
+      const notification = this.parseTaskNotificationContent(
+        entry.message.content,
+        entry.timestamp,
+      )
       if (notification) notifications.push(notification)
     }
     return notifications

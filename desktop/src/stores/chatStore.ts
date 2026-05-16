@@ -219,6 +219,41 @@ function appendAssistantTextMessage(
   ]
 }
 
+function upsertBackgroundTaskMessage(
+  messages: UIMessage[],
+  task: BackgroundAgentTask,
+  timestamp: number,
+): UIMessage[] {
+  const existingIndex = messages.findIndex((message) =>
+    message.type === 'background_task' &&
+    (message.task.taskId === task.taskId ||
+      (task.toolUseId && message.task.toolUseId === task.toolUseId)))
+  if (existingIndex === -1) {
+    return [...messages, {
+      id: `background-task-${task.taskId}`,
+      type: 'background_task',
+      task,
+      timestamp,
+    }]
+  }
+
+  return messages.map((message, index) =>
+    index === existingIndex && message.type === 'background_task'
+      ? { ...message, task: { ...message.task, ...task }, timestamp: message.timestamp || timestamp }
+      : message)
+}
+
+function mergeBackgroundTaskMessages(
+  messages: UIMessage[],
+  tasks: Record<string, BackgroundAgentTask>,
+): UIMessage[] {
+  const merged = Object.values(tasks).reduce(
+    (current, task) => upsertBackgroundTaskMessage(current, task, task.updatedAt),
+    messages,
+  )
+  return [...merged].sort((a, b) => a.timestamp - b.timestamp)
+}
+
 function normalizeMemoryEventFiles(data: unknown): MemoryEventFile[] {
   if (!data || typeof data !== 'object') return []
   const writtenPaths = (data as { writtenPaths?: unknown }).writtenPaths
@@ -278,14 +313,16 @@ function updateSessionIn(
 async function fetchAndMapSessionHistory(sessionId: string) {
   const { messages, taskNotifications } = await sessionsApi.getMessages(sessionId)
   const uiMessages = mapHistoryMessagesToUiMessages(messages)
+  const restoredNotifications = {
+    ...reconstructAgentNotifications(messages),
+    ...agentNotificationRecordFromList(taskNotifications ?? []),
+  }
   return {
     rawMessages: messages,
     uiMessages,
     activeGoal: deriveActiveGoalFromMessages(uiMessages),
-    restoredNotifications: {
-      ...reconstructAgentNotifications(messages),
-      ...agentNotificationRecordFromList(taskNotifications ?? []),
-    },
+    restoredNotifications,
+    restoredBackgroundTasks: backgroundTaskRecordFromNotifications(Object.values(restoredNotifications)),
     lastTodos: extractLastTodoWriteFromHistory(messages),
     hasMessagesAfterTaskCompletion: hasUserMessagesAfterTaskCompletion(messages),
   }
@@ -540,16 +577,32 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         uiMessages,
         activeGoal,
         restoredNotifications,
+        restoredBackgroundTasks,
         lastTodos,
         hasMessagesAfterTaskCompletion,
       } = await fetchAndMapSessionHistory(sessionId)
       set((state) => {
         const session = state.sessions[sessionId]
-        if (!session || session.messages.length > 0) return state
+        if (!session) return state
+        if (session.messages.length > 0) {
+          return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
+            activeGoal: activeGoal ?? s.activeGoal ?? null,
+            agentTaskNotifications: { ...s.agentTaskNotifications, ...restoredNotifications },
+            backgroundAgentTasks: mergeBackgroundAgentTaskRecords(
+              s.backgroundAgentTasks ?? {},
+              restoredBackgroundTasks,
+            ),
+            messages: mergeBackgroundTaskMessages(s.messages, restoredBackgroundTasks),
+          })) }
+        }
         return { sessions: updateSessionIn(state.sessions, sessionId, (s) => ({
-          messages: uiMessages,
+          messages: mergeBackgroundTaskMessages(uiMessages, restoredBackgroundTasks),
           activeGoal,
           agentTaskNotifications: { ...s.agentTaskNotifications, ...restoredNotifications },
+          backgroundAgentTasks: mergeBackgroundAgentTaskRecords(
+            s.backgroundAgentTasks ?? {},
+            restoredBackgroundTasks,
+          ),
         })) }
       })
       if (lastTodos && lastTodos.length > 0) {
@@ -572,6 +625,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         uiMessages,
         activeGoal,
         restoredNotifications,
+        restoredBackgroundTasks,
         lastTodos,
         hasMessagesAfterTaskCompletion,
       } = await fetchAndMapSessionHistory(sessionId)
@@ -582,9 +636,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         if (session.elapsedTimer) clearInterval(session.elapsedTimer)
         return {
           sessions: updateSessionIn(state.sessions, sessionId, () => ({
-            messages: uiMessages,
+            messages: mergeBackgroundTaskMessages(uiMessages, restoredBackgroundTasks),
             activeGoal,
             agentTaskNotifications: restoredNotifications,
+            backgroundAgentTasks: restoredBackgroundTasks,
             chatState: 'idle',
             activeThinkingId: null,
             activeToolUseId: null,
@@ -998,13 +1053,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           const taskEvent = normalizeBackgroundAgentTaskEvent(msg.data, msg.subtype)
           if (taskEvent) {
             const now = Date.now()
-            update((session) => ({
-              backgroundAgentTasks: upsertBackgroundAgentTask(
+            update((session) => {
+              const backgroundAgentTasks = upsertBackgroundAgentTask(
                 session.backgroundAgentTasks ?? {},
                 taskEvent,
                 now,
-              ),
-            }))
+              )
+              const task = backgroundAgentTasks[taskEvent.taskId]
+              return {
+                backgroundAgentTasks,
+                ...(task ? { messages: upsertBackgroundTaskMessage(session.messages, task, now) } : {}),
+              }
+            })
           }
         }
         if (msg.subtype === 'task_notification' && msg.data && typeof msg.data === 'object') {
@@ -1017,31 +1077,36 @@ export const useChatStore = create<ChatStore>((set, get) => ({
           const taskStatus = data.status
           if (taskEvent) {
             const now = Date.now()
-            update((session) => ({
-              backgroundAgentTasks: upsertBackgroundAgentTask(
+            update((session) => {
+              const backgroundAgentTasks = upsertBackgroundAgentTask(
                 session.backgroundAgentTasks ?? {},
                 taskEvent,
                 now,
-              ),
-              agentTaskNotifications: {
-                ...session.agentTaskNotifications,
-                ...(toolUseId &&
-                (taskStatus === 'completed' ||
-                  taskStatus === 'failed' ||
-                  taskStatus === 'stopped')
-                  ? {
-                      [toolUseId]: {
-                        taskId: taskEvent.taskId,
-                        toolUseId,
-                        status: taskStatus,
-                        summary: taskEvent.summary,
-                        outputFile: taskEvent.outputFile,
-                        usage: taskEvent.usage,
-                      },
-                    }
-                  : {}),
-              },
-            }))
+              )
+              const task = backgroundAgentTasks[taskEvent.taskId]
+              return {
+                backgroundAgentTasks,
+                ...(task ? { messages: upsertBackgroundTaskMessage(session.messages, task, now) } : {}),
+                agentTaskNotifications: {
+                  ...session.agentTaskNotifications,
+                  ...(toolUseId &&
+                  (taskStatus === 'completed' ||
+                    taskStatus === 'failed' ||
+                    taskStatus === 'stopped')
+                    ? {
+                        [toolUseId]: {
+                          taskId: taskEvent.taskId,
+                          toolUseId,
+                          status: taskStatus,
+                          summary: taskEvent.summary,
+                          outputFile: taskEvent.outputFile,
+                          usage: taskEvent.usage,
+                        },
+                      }
+                    : {}),
+                },
+              }
+            })
           }
         }
         break
@@ -1190,9 +1255,19 @@ function upsertBackgroundAgentTask(
   event: Partial<BackgroundAgentTask> & Pick<BackgroundAgentTask, 'taskId' | 'status'>,
   now: number,
 ): Record<string, BackgroundAgentTask> {
-  const existing = current[event.taskId]
+  const existingKey = current[event.taskId]
+    ? event.taskId
+    : event.toolUseId
+      ? Object.keys(current).find((key) =>
+        key === event.toolUseId || current[key]?.toolUseId === event.toolUseId)
+      : undefined
+  const existing = existingKey ? current[existingKey] : undefined
+  const next = { ...current }
+  if (existingKey && existingKey !== event.taskId) {
+    delete next[existingKey]
+  }
   return {
-    ...current,
+    ...next,
     [event.taskId]: {
       taskId: event.taskId,
       toolUseId: event.toolUseId ?? existing?.toolUseId,
@@ -1358,6 +1433,33 @@ function agentNotificationRecordFromList(
 ): Record<string, AgentTaskNotification> {
   return Object.fromEntries(
     notifications.map((notification) => [notification.toolUseId, notification]),
+  )
+}
+
+function backgroundTaskRecordFromNotifications(
+  notifications: AgentTaskNotification[],
+): Record<string, BackgroundAgentTask> {
+  return notifications.reduce<Record<string, BackgroundAgentTask>>((tasks, notification) => {
+    const parsedTimestamp = notification.timestamp ? new Date(notification.timestamp).getTime() : NaN
+    const now = Number.isFinite(parsedTimestamp) ? parsedTimestamp : Date.now()
+    return upsertBackgroundAgentTask(tasks, {
+      taskId: notification.taskId,
+      toolUseId: notification.toolUseId,
+      status: notification.status,
+      summary: notification.summary,
+      outputFile: notification.outputFile,
+      usage: notification.usage,
+    }, now)
+  }, {})
+}
+
+function mergeBackgroundAgentTaskRecords(
+  current: Record<string, BackgroundAgentTask>,
+  restored: Record<string, BackgroundAgentTask>,
+): Record<string, BackgroundAgentTask> {
+  return Object.values(restored).reduce(
+    (tasks, task) => upsertBackgroundAgentTask(tasks, task, task.updatedAt),
+    current,
   )
 }
 

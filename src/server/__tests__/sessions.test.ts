@@ -873,6 +873,7 @@ describe('SessionService', () => {
         toolUseId: 'toolu_bg',
         status: 'completed',
         summary: 'Background command completed',
+        timestamp: '2026-01-01T00:01:00.000Z',
       },
     ])
   })
@@ -1706,6 +1707,7 @@ describe('Sessions API', () => {
         status: 'failed',
         summary: 'Background command failed & stopped',
         outputFile: 'C:\\Temp\\bg.output',
+        timestamp: expect.any(String),
       },
     ])
   })

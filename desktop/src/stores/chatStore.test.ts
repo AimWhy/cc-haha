@@ -373,6 +373,94 @@ describe('chatStore history mapping', () => {
     })
   })
 
+  it('uses transcript terminal events to repair stale live goal and background task state', async () => {
+    vi.mocked(sessionsApi.getMessages).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'goal-command',
+          type: 'system',
+          timestamp: '2026-04-06T00:00:00.000Z',
+          content: '<command-name>/goal</command-name>\n<command-args>ship the smoke test</command-args>',
+        },
+        {
+          id: 'goal-output',
+          type: 'system',
+          timestamp: '2026-04-06T00:00:01.000Z',
+          content: '<local-command-stdout>Goal set: ship the smoke test</local-command-stdout>',
+        },
+        {
+          id: 'goal-complete',
+          type: 'system',
+          timestamp: '2026-04-06T00:00:02.000Z',
+          content: '<local-command-stdout>Goal marked complete.</local-command-stdout>',
+        },
+      ],
+      taskNotifications: [
+        {
+          taskId: 'agent-task-1',
+          toolUseId: 'agent-tool-1',
+          status: 'completed',
+          summary: 'Agent completed',
+          timestamp: '2026-04-06T00:00:03.000Z',
+        },
+      ],
+    })
+
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          messages: [{ id: 'visible-message', type: 'assistant_text', content: 'already rendered', timestamp: 1 }],
+          activeGoal: {
+            action: 'created',
+            status: 'active',
+            objective: 'ship the smoke test',
+            updatedAt: 1,
+          },
+          backgroundAgentTasks: {
+            'agent-tool-1': {
+              taskId: 'agent-tool-1',
+              toolUseId: 'agent-tool-1',
+              status: 'running',
+              taskType: 'local_agent',
+              description: 'Review app',
+              startedAt: 1,
+              updatedAt: 2,
+            },
+          },
+        }),
+      },
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]
+    expect(session?.messages).toMatchObject([
+      { id: 'visible-message', type: 'assistant_text', content: 'already rendered' },
+      {
+        type: 'background_task',
+        task: {
+          taskId: 'agent-task-1',
+          toolUseId: 'agent-tool-1',
+          status: 'completed',
+          summary: 'Agent completed',
+        },
+      },
+    ])
+    expect(session?.activeGoal).toMatchObject({
+      action: 'completed',
+      status: 'complete',
+      objective: 'ship the smoke test',
+    })
+    expect(session?.backgroundAgentTasks?.['agent-tool-1']).toBeUndefined()
+    expect(session?.backgroundAgentTasks?.['agent-task-1']).toMatchObject({
+      taskId: 'agent-task-1',
+      toolUseId: 'agent-tool-1',
+      status: 'completed',
+      description: 'Review app',
+      summary: 'Agent completed',
+    })
+  })
+
   it('merges consecutive assistant text blocks when restoring transcript history', () => {
     const messages: MessageEntry[] = [
       {
@@ -1129,6 +1217,9 @@ describe('chatStore history mapping', () => {
   })
 
   it('tracks background agent task lifecycle events for desktop visibility', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-04-06T00:00:01.000Z'))
+
     useChatStore.setState({
       sessions: {
         [TEST_SESSION_ID]: makeSession({
@@ -1136,6 +1227,8 @@ describe('chatStore history mapping', () => {
         }),
       },
     })
+
+    vi.setSystemTime(new Date('2026-04-06T00:00:02.000Z'))
 
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
@@ -1157,6 +1250,20 @@ describe('chatStore history mapping', () => {
       taskType: 'local_agent',
       prompt: 'Run E2E verification',
     })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toMatchObject([
+      {
+        type: 'background_task',
+        task: {
+          taskId: 'agent-task-1',
+          status: 'running',
+          description: 'Verify the todo app',
+        },
+      },
+    ])
+    const insertedTaskTimestamp = useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]?.timestamp
+    expect(insertedTaskTimestamp).toBe(new Date('2026-04-06T00:00:02.000Z').getTime())
+
+    vi.setSystemTime(new Date('2026-04-06T00:00:03.000Z'))
 
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
@@ -1185,6 +1292,18 @@ describe('chatStore history mapping', () => {
         durationMs: 45000,
       },
     })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toHaveLength(1)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]).toMatchObject({
+      type: 'background_task',
+      task: {
+        taskId: 'agent-task-1',
+        status: 'running',
+        summary: 'Running Playwright checks',
+      },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]?.timestamp).toBe(insertedTaskTimestamp)
+
+    vi.setSystemTime(new Date('2026-04-06T00:00:04.000Z'))
 
     useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
       type: 'system_notification',
@@ -1218,6 +1337,17 @@ describe('chatStore history mapping', () => {
       summary: 'Found and fixed localStorage corruption.',
       outputFile: '/tmp/agent-output.txt',
     })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages).toHaveLength(1)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]).toMatchObject({
+      type: 'background_task',
+      task: {
+        taskId: 'agent-task-1',
+        status: 'completed',
+        summary: 'Found and fixed localStorage corruption.',
+      },
+    })
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.messages[0]?.timestamp).toBe(insertedTaskTimestamp)
+    vi.useRealTimers()
   })
 
   it('clears local desktop chat state when the server confirms /clear', () => {
